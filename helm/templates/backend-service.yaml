@@ -1,0 +1,1 @@
+{{- /* single-service mode: backend service removed, frontend service routes to portal pod */ -}}

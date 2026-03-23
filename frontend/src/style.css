@@ -1,0 +1,82 @@
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100%;
+  background: #f5f7fb;
+}
+
+.portal-layout {
+  min-height: 100vh;
+}
+
+.logo {
+  height: 64px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.header {
+  background: #fff;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.header-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.header-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.content {
+  margin: 16px;
+}
+
+.portal-card {
+  margin-top: 16px;
+}
+
+.code-block {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 12px;
+  background: #0b1020;
+  color: #d5e4ff;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(120deg, #eef4ff 0%, #f9fbff 45%, #eafaf2 100%);
+  padding: 24px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 460px;
+  border-radius: 12px;
+}
+
+.auth-title {
+  margin: 0;
+  font-size: 22px;
+}

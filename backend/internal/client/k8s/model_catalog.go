@@ -1,0 +1,445 @@
+package k8s
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/gogf/gf/v2/errors/gerror"
+
+	"higress-portal-backend/internal/config"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+)
+
+var (
+	wasmPluginGVR = schema.GroupVersionResource{
+		Group:    "extensions.higress.io",
+		Version:  "v1alpha1",
+		Resource: "wasmplugins",
+	}
+	mcpBridgeGVR = schema.GroupVersionResource{
+		Group:    "networking.higress.io",
+		Version:  "v1",
+		Resource: "mcpbridges",
+	}
+)
+
+const (
+	defaultNamespace  = "aigateway-system"
+	defaultMcpBridge  = "default"
+	defaultCurrency   = "USD"
+	aiProxyPluginName = "ai-proxy"
+)
+
+type ProviderCapabilities struct {
+	Modalities []string
+	Features   []string
+}
+
+type ProviderPricing struct {
+	Currency    string
+	InputPer1K  float64
+	OutputPer1K float64
+}
+
+type ProviderLimits struct {
+	RPM           int64
+	TPM           int64
+	ContextWindow int64
+}
+
+type ProviderModelMeta struct {
+	Intro        string
+	Tags         []string
+	Capabilities ProviderCapabilities
+	Pricing      ProviderPricing
+	Limits       ProviderLimits
+}
+
+type ProviderModel struct {
+	ID       string
+	Type     string
+	Protocol string
+	Endpoint string
+	Meta     ProviderModelMeta
+}
+
+type Client struct {
+	namespace     string
+	dynamicClient dynamic.Interface
+	initErr       error
+}
+
+func New(cfg config.Config) *Client {
+	c := &Client{
+		namespace: strings.TrimSpace(cfg.K8sNamespace),
+	}
+	if c.namespace == "" {
+		c.namespace = defaultNamespace
+	}
+
+	restCfg, err := buildRestConfig(strings.TrimSpace(cfg.KubeConfigPath))
+	if err != nil {
+		c.initErr = gerror.Wrap(err, "build kubernetes config failed")
+		return c
+	}
+	dyn, err := dynamic.NewForConfig(restCfg)
+	if err != nil {
+		c.initErr = gerror.Wrap(err, "initialize kubernetes dynamic client failed")
+		return c
+	}
+	c.dynamicClient = dyn
+	return c
+}
+
+func (c *Client) InitError() error {
+	return c.initErr
+}
+
+func (c *Client) ListEnabledModels(ctx context.Context) ([]ProviderModel, error) {
+	if c.dynamicClient == nil {
+		if c.initErr != nil {
+			return nil, gerror.Wrap(c.initErr, "kubernetes model catalog unavailable")
+		}
+		return nil, gerror.New("kubernetes model catalog unavailable")
+	}
+
+	providers, err := c.listProviderConfigs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	registryNames, err := c.listRegistryNames(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]ProviderModel, 0, len(providers))
+	for _, item := range providers {
+		if _, ok := registryNames[buildRegistryName(item.ID)]; !ok {
+			continue
+		}
+		items = append(items, item)
+	}
+	// Keep stable ordering for frontend rendering and detail lookup.
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].ID < items[j].ID
+	})
+	return items, nil
+}
+
+func (c *Client) listProviderConfigs(ctx context.Context) ([]ProviderModel, error) {
+	selector := "higress.io/resource-definer=higress,higress.io/wasm-plugin-name=" + aiProxyPluginName
+	list, err := c.dynamicClient.Resource(wasmPluginGVR).Namespace(c.namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: selector,
+	})
+	if err != nil {
+		return nil, gerror.Wrap(err, "list ai-proxy wasmplugins failed")
+	}
+	if list == nil || len(list.Items) == 0 {
+		return []ProviderModel{}, nil
+	}
+
+	providers := make(map[string]ProviderModel)
+	for _, item := range list.Items {
+		spec, found, nestedErr := unstructured.NestedMap(item.Object, "spec")
+		if nestedErr != nil || !found || len(spec) == 0 {
+			continue
+		}
+		disabled, hasDisable, disableErr := unstructured.NestedBool(spec, "defaultConfigDisable")
+		if disableErr == nil && hasDisable && disabled {
+			continue
+		}
+		defaultConfig, found, nestedErr := unstructured.NestedMap(spec, "defaultConfig")
+		if nestedErr != nil || !found || len(defaultConfig) == 0 {
+			continue
+		}
+		providerItems, found, nestedErr := unstructured.NestedSlice(defaultConfig, "providers")
+		if nestedErr != nil || !found || len(providerItems) == 0 {
+			continue
+		}
+
+		for _, providerItem := range providerItems {
+			providerMap, ok := providerItem.(map[string]any)
+			if !ok {
+				continue
+			}
+			id := asString(providerMap["id"])
+			if id == "" {
+				continue
+			}
+			if _, exists := providers[id]; exists {
+				continue
+			}
+
+			providers[id] = ProviderModel{
+				ID:       id,
+				Type:     asString(providerMap["type"]),
+				Protocol: normalizeProtocol(asString(providerMap["protocol"])),
+				Endpoint: inferProviderEndpoint(providerMap),
+				Meta:     parsePortalModelMeta(providerMap),
+			}
+		}
+	}
+
+	results := make([]ProviderModel, 0, len(providers))
+	for _, item := range providers {
+		results = append(results, item)
+	}
+	return results, nil
+}
+
+func (c *Client) listRegistryNames(ctx context.Context) (map[string]struct{}, error) {
+	result := make(map[string]struct{})
+	obj, err := c.dynamicClient.Resource(mcpBridgeGVR).Namespace(c.namespace).Get(ctx, defaultMcpBridge, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return result, nil
+	}
+	if err != nil {
+		return nil, gerror.Wrap(err, "read default mcpbridge failed")
+	}
+	if obj == nil {
+		return result, nil
+	}
+
+	registries, found, nestedErr := unstructured.NestedSlice(obj.Object, "spec", "registries")
+	if nestedErr != nil || !found || len(registries) == 0 {
+		return result, nil
+	}
+	for _, registryItem := range registries {
+		registryMap, ok := registryItem.(map[string]any)
+		if !ok {
+			continue
+		}
+		name := asString(registryMap["name"])
+		if name != "" {
+			result[name] = struct{}{}
+		}
+	}
+	return result, nil
+}
+
+func buildRestConfig(kubeConfigPath string) (*rest.Config, error) {
+	if kubeConfigPath != "" {
+		cfg, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
+		if err == nil {
+			return cfg, nil
+		}
+		return nil, err
+	}
+
+	if cfg, err := rest.InClusterConfig(); err == nil {
+		return cfg, nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	defaultConfigPath := filepath.Join(home, ".kube", "config")
+	if _, statErr := os.Stat(defaultConfigPath); statErr != nil {
+		return nil, statErr
+	}
+	return clientcmd.BuildConfigFromFlags("", defaultConfigPath)
+}
+
+func buildRegistryName(providerID string) string {
+	return fmt.Sprintf("llm-%s.internal", providerID)
+}
+
+func normalizeProtocol(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "openai/v1"
+	}
+	return v
+}
+
+func inferProviderEndpoint(provider map[string]any) string {
+	if v := asString(provider["openaiCustomUrl"]); v != "" {
+		return v
+	}
+	if v := asString(provider["azureServiceUrl"]); v != "" {
+		return v
+	}
+	providerType := strings.ToLower(asString(provider["type"]))
+	switch providerType {
+	case "openai":
+		return "https://api.openai.com/v1"
+	case "qwen":
+		domain := asString(provider["qwenDomain"])
+		if domain == "" {
+			domain = "dashscope.aliyuncs.com"
+		}
+		if !strings.Contains(domain, "://") {
+			domain = "https://" + domain
+		}
+		return domain
+	case "claude":
+		return "https://api.anthropic.com"
+	case "zhipuai":
+		domain := asString(provider["zhipuDomain"])
+		if domain == "" {
+			domain = "open.bigmodel.cn"
+		}
+		if !strings.Contains(domain, "://") {
+			domain = "https://" + domain
+		}
+		return domain
+	}
+	if domain := asString(provider["domain"]); domain != "" {
+		return domain
+	}
+	return ""
+}
+
+func parsePortalModelMeta(provider map[string]any) ProviderModelMeta {
+	meta := ProviderModelMeta{
+		Pricing: ProviderPricing{Currency: defaultCurrency},
+	}
+	metaMap, ok := provider["portalModelMeta"].(map[string]any)
+	if !ok || len(metaMap) == 0 {
+		return meta
+	}
+
+	meta.Intro = asString(metaMap["intro"])
+	meta.Tags = asStringSlice(metaMap["tags"])
+
+	if capMap, ok := metaMap["capabilities"].(map[string]any); ok {
+		meta.Capabilities.Modalities = asStringSlice(capMap["modalities"])
+		meta.Capabilities.Features = asStringSlice(capMap["features"])
+	}
+	if pricingMap, ok := metaMap["pricing"].(map[string]any); ok {
+		if currency := asString(pricingMap["currency"]); currency != "" {
+			meta.Pricing.Currency = currency
+		}
+		if v, ok := asFloat64(pricingMap["inputPer1K"]); ok {
+			meta.Pricing.InputPer1K = v
+		}
+		if v, ok := asFloat64(pricingMap["outputPer1K"]); ok {
+			meta.Pricing.OutputPer1K = v
+		}
+	}
+	if limitMap, ok := metaMap["limits"].(map[string]any); ok {
+		if v, ok := asInt64(limitMap["rpm"]); ok {
+			meta.Limits.RPM = v
+		}
+		if v, ok := asInt64(limitMap["tpm"]); ok {
+			meta.Limits.TPM = v
+		}
+		if v, ok := asInt64(limitMap["contextWindow"]); ok {
+			meta.Limits.ContextWindow = v
+		}
+	}
+
+	return meta
+}
+
+func asString(v any) string {
+	switch val := v.(type) {
+	case string:
+		return strings.TrimSpace(val)
+	case fmt.Stringer:
+		return strings.TrimSpace(val.String())
+	case nil:
+		return ""
+	default:
+		return strings.TrimSpace(fmt.Sprintf("%v", val))
+	}
+}
+
+func asStringSlice(v any) []string {
+	result := make([]string, 0)
+	switch val := v.(type) {
+	case []string:
+		for _, item := range val {
+			if normalized := strings.TrimSpace(item); normalized != "" {
+				result = append(result, normalized)
+			}
+		}
+	case []any:
+		for _, item := range val {
+			if normalized := asString(item); normalized != "" {
+				result = append(result, normalized)
+			}
+		}
+	case string:
+		for _, item := range strings.Split(val, ",") {
+			if normalized := strings.TrimSpace(item); normalized != "" {
+				result = append(result, normalized)
+			}
+		}
+	}
+	return result
+}
+
+func asFloat64(v any) (float64, bool) {
+	switch val := v.(type) {
+	case float64:
+		return val, true
+	case float32:
+		return float64(val), true
+	case int:
+		return float64(val), true
+	case int32:
+		return float64(val), true
+	case int64:
+		return float64(val), true
+	case uint:
+		return float64(val), true
+	case uint32:
+		return float64(val), true
+	case uint64:
+		return float64(val), true
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(val), 64)
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	default:
+		return 0, false
+	}
+}
+
+func asInt64(v any) (int64, bool) {
+	switch val := v.(type) {
+	case int:
+		return int64(val), true
+	case int32:
+		return int64(val), true
+	case int64:
+		return val, true
+	case uint:
+		return int64(val), true
+	case uint32:
+		return int64(val), true
+	case uint64:
+		return int64(val), true
+	case float64:
+		return int64(val), true
+	case float32:
+		return int64(val), true
+	case string:
+		parsed, err := strconv.ParseInt(strings.TrimSpace(val), 10, 64)
+		if err == nil {
+			return parsed, true
+		}
+		floatParsed, floatErr := strconv.ParseFloat(strings.TrimSpace(val), 64)
+		if floatErr != nil {
+			return 0, false
+		}
+		return int64(floatParsed), true
+	default:
+		return 0, false
+	}
+}

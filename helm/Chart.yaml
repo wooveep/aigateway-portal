@@ -1,0 +1,11 @@
+apiVersion: v2
+appVersion: 0.2.0
+dependencies:
+- condition: mysql.enabled
+  name: mysql
+  repository: file://charts/mysql
+  version: 8.0.0
+description: AIGateway user portal (frontend + backend + bundled mysql)
+name: aigateway-portal
+type: application
+version: 0.2.0

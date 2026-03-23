@@ -1,0 +1,12 @@
+.git
+.gitignore
+
+frontend/node_modules
+frontend/dist
+
+backend/*.log
+frontend/*.log
+
+helm
+docker-compose.yml
+README.md

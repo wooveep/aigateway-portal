@@ -1,0 +1,6 @@
+server:
+  address: ":8080"
+
+logger:
+  level: "all"
+  stdout: true

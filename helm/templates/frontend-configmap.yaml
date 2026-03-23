@@ -1,0 +1,1 @@
+{{- /* frontend is embedded into backend image; nginx configmap removed */ -}}

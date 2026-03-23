@@ -1,0 +1,144 @@
+{{- $dbPort := .Values.database.port -}}
+{{- $dbUserKey := .Values.database.usernameKey -}}
+{{- $dbPasswordKey := .Values.database.passwordKey -}}
+{{- $dbNameKey := .Values.database.databaseKey -}}
+{{- if .Values.mysql.enabled -}}
+{{- $dbPort = .Values.mysql.service.port -}}
+{{- $dbUserKey = .Values.mysql.auth.usernameKey -}}
+{{- $dbPasswordKey = .Values.mysql.auth.passwordKey -}}
+{{- $dbNameKey = .Values.mysql.auth.databaseKey -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aigateway-portal.backend.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aigateway-portal.labels" . | nindent 4 }}
+    app.kubernetes.io/component: portal
+spec:
+  replicas: {{ .Values.backend.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "aigateway-portal.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: portal
+  template:
+    metadata:
+      {{- with .Values.backend.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "aigateway-portal.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: portal
+    spec:
+      serviceAccountName: {{ include "aigateway-portal.backend.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.backend.podSecurityContext | nindent 8 }}
+      containers:
+        - name: portal
+          securityContext:
+            {{- toYaml .Values.backend.securityContext | nindent 12 }}
+          image: "{{ include "aigateway-portal.image.repository" . }}:{{ include "aigateway-portal.image.tag" . }}"
+          imagePullPolicy: {{ include "aigateway-portal.image.pullPolicy" . }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- if .Values.backend.k8s.namespace }}
+            - name: PORTAL_K8S_NAMESPACE
+              value: {{ .Values.backend.k8s.namespace | quote }}
+            {{- end }}
+            {{- if .Values.backend.k8s.kubeconfig }}
+            - name: PORTAL_K8S_KUBECONFIG
+              value: {{ .Values.backend.k8s.kubeconfig | quote }}
+            {{- end }}
+            - name: PORTAL_LISTEN_ADDR
+              value: ":{{ include "aigateway-portal.service.port" . }}"
+            - name: PORTAL_MYSQL_HOST
+              value: {{ include "aigateway-portal.mysql.host" . | quote }}
+            - name: PORTAL_MYSQL_PORT
+              value: {{ $dbPort | quote }}
+            - name: PORTAL_MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "aigateway-portal.dbSecretName" . }}
+                  key: {{ $dbUserKey }}
+            - name: PORTAL_MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "aigateway-portal.dbSecretName" . }}
+                  key: {{ $dbPasswordKey }}
+            - name: PORTAL_MYSQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "aigateway-portal.dbSecretName" . }}
+                  key: {{ $dbNameKey }}
+            - name: PORTAL_MYSQL_PARAMS
+              value: "parseTime=true&charset=utf8mb4&loc=Local"
+            - name: PORTAL_SESSION_COOKIE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "aigateway-portal.sessionSecretName" . }}
+                  key: cookie-name
+            - name: PORTAL_SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "aigateway-portal.sessionSecretName" . }}
+                  key: session-secret
+            - name: PORTAL_BOOTSTRAP_INVITE_CODE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "aigateway-portal.sessionSecretName" . }}
+                  key: invite-code
+            - name: PORTAL_BOOTSTRAP_INVITE_EXPIRE_DAYS
+              value: {{ .Values.backend.inviteExpireDays | quote }}
+            - name: PORTAL_SESSION_TTL_HOURS
+              value: {{ .Values.backend.sessionTTLHours | quote }}
+            - name: PORTAL_SESSION_SECURE
+              value: {{ .Values.backend.sessionSecure | quote }}
+            - name: PORTAL_CORE_PROMETHEUS_URL
+              value: {{ .Values.backend.corePrometheusURL | quote }}
+            - name: PORTAL_USAGE_SYNC_ENABLED
+              value: {{ .Values.backend.usageSyncEnabled | quote }}
+            - name: PORTAL_USAGE_SYNC_SECONDS
+              value: {{ .Values.backend.usageSyncSeconds | quote }}
+            - name: PORTAL_SHUTDOWN_GRACE_SECONDS
+              value: {{ .Values.backend.shutdownGraceSeconds | quote }}
+            - name: PORTAL_DISPLAY_NAME
+              value: {{ .Values.backend.displayName | quote }}
+          ports:
+            - name: http
+              containerPort: {{ include "aigateway-portal.service.port" . | int }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+      {{- with .Values.backend.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

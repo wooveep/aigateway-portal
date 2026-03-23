@@ -1,0 +1,18 @@
+{{- if and .Values.backend.rbac.create (or .Values.backend.serviceAccount.create .Values.backend.serviceAccount.name) }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "aigateway-portal.backend.fullname" . }}-model-reader
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aigateway-portal.labels" . | nindent 4 }}
+    app.kubernetes.io/component: portal
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "aigateway-portal.backend.fullname" . }}-model-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "aigateway-portal.backend.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

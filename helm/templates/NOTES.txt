@@ -1,0 +1,10 @@
+{{- $ingress := .Values.ingress | default .Values.frontend.ingress -}}
+1. Portal service:
+   {{ include "aigateway-portal.frontend.fullname" . }}.{{ .Release.Namespace }}.svc
+
+2. Ingress:
+{{- if $ingress.enabled }}
+   enabled, host: {{ $ingress.host }}
+{{- else }}
+   disabled, access by Service port (default: {{ include "aigateway-portal.service.port" . }})
+{{- end }}
