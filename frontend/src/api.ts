@@ -84,8 +84,36 @@ export async function fetchApiKeys(includeRaw = false) {
   return data;
 }
 
-export async function createApiKey(payload: { name: string }) {
+export async function createApiKey(payload: {
+  name: string;
+  expiresAt?: string;
+  limitTotal?: number;
+  limit5h?: number;
+  limitDaily?: number;
+  dailyResetMode?: string;
+  dailyResetTime?: string;
+  limitWeekly?: number;
+  limitMonthly?: number;
+}) {
   const { data } = await client.post<ApiKeyRecord>('/open-platform/keys', payload);
+  return data;
+}
+
+export async function updateApiKey(
+  id: string,
+  payload: {
+    name: string;
+    expiresAt?: string;
+    limitTotal?: number;
+    limit5h?: number;
+    limitDaily?: number;
+    dailyResetMode?: string;
+    dailyResetTime?: string;
+    limitWeekly?: number;
+    limitMonthly?: number;
+  },
+) {
+  const { data } = await client.put<ApiKeyRecord>(`/open-platform/keys/${id}`, payload);
   return data;
 }
 

@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/gogf/gf/contrib/drivers/mysql/v2"
@@ -22,10 +23,13 @@ import (
 )
 
 type Service struct {
-	cfg        config.Config
-	db         gdb.DB
-	httpClient *http.Client
-	modelK8s   *clientK8s.Client
+	cfg             config.Config
+	db              gdb.DB
+	httpClient      *http.Client
+	modelK8s        *clientK8s.Client
+	billingNodeName string
+	usageReadSyncMu sync.Mutex
+	usageReadSyncAt time.Time
 }
 
 func New(cfg config.Config) (*Service, error) {
@@ -50,7 +54,8 @@ func New(cfg config.Config) (*Service, error) {
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,
 		},
-		modelK8s: clientK8s.New(cfg),
+		modelK8s:        clientK8s.New(cfg),
+		billingNodeName: "portal-" + randomString(8),
 	}
 	if initErr := s.modelK8s.InitError(); initErr != nil {
 		g.Log().Warningf(context.Background(), "portal k8s model catalog init failed: %v", initErr)
@@ -60,6 +65,9 @@ func New(cfg config.Config) (*Service, error) {
 		return nil, err
 	}
 	if err = s.seedBootstrapData(context.Background()); err != nil {
+		return nil, err
+	}
+	if err = s.bootstrapBillingState(context.Background()); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -117,6 +125,15 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			status VARCHAR(16) NOT NULL DEFAULT 'active',
 			total_calls BIGINT NOT NULL DEFAULT 0,
 			last_used_at DATETIME NULL,
+			expires_at DATETIME NULL,
+			deleted_at DATETIME NULL,
+			limit_total_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			limit_5h_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			limit_daily_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			daily_reset_mode VARCHAR(16) NOT NULL DEFAULT 'fixed',
+			daily_reset_time VARCHAR(5) NOT NULL DEFAULT '00:00',
+			limit_weekly_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			limit_monthly_micro_yuan BIGINT NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			INDEX idx_api_key_consumer_status (consumer_name, status)
@@ -186,12 +203,239 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			INDEX idx_invoice_consumer (consumer_name)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS billing_wallet (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			consumer_name VARCHAR(128) NOT NULL UNIQUE,
+			currency VARCHAR(8) NOT NULL DEFAULT 'CNY',
+			available_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			version BIGINT NOT NULL DEFAULT 1,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			INDEX idx_billing_wallet_currency (currency)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS billing_transaction (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			tx_id VARCHAR(64) NOT NULL UNIQUE,
+			consumer_name VARCHAR(128) NOT NULL,
+			tx_type VARCHAR(16) NOT NULL,
+			amount_micro_yuan BIGINT NOT NULL,
+			currency VARCHAR(8) NOT NULL DEFAULT 'CNY',
+			source_type VARCHAR(64) NOT NULL,
+			source_id VARCHAR(128) NOT NULL,
+			request_id VARCHAR(128) NULL,
+			api_key_id VARCHAR(64) NULL,
+			model_id VARCHAR(128) NULL,
+			price_version_id BIGINT NULL,
+			input_tokens BIGINT NOT NULL DEFAULT 0,
+			output_tokens BIGINT NOT NULL DEFAULT 0,
+			occurred_at DATETIME NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE KEY uk_billing_transaction_source (source_type, source_id),
+			INDEX idx_billing_transaction_consumer_time (consumer_name, occurred_at),
+			INDEX idx_billing_transaction_type (tx_type)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS billing_usage_event (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			event_id VARCHAR(128) NOT NULL UNIQUE,
+			request_id VARCHAR(128) NULL,
+			trace_id VARCHAR(128) NULL,
+			consumer_name VARCHAR(128) NOT NULL,
+			api_key_id VARCHAR(64) NULL,
+			route_name VARCHAR(255) NOT NULL DEFAULT '',
+			request_path VARCHAR(255) NOT NULL DEFAULT '',
+			request_kind VARCHAR(64) NOT NULL DEFAULT '',
+			model_id VARCHAR(128) NOT NULL,
+			request_status VARCHAR(16) NOT NULL DEFAULT 'success',
+			usage_status VARCHAR(16) NOT NULL DEFAULT 'parsed',
+			http_status INT NOT NULL DEFAULT 200,
+			error_code VARCHAR(64) NOT NULL DEFAULT '',
+			error_message VARCHAR(512) NOT NULL DEFAULT '',
+			input_tokens BIGINT NOT NULL DEFAULT 0,
+			output_tokens BIGINT NOT NULL DEFAULT 0,
+			total_tokens BIGINT NOT NULL DEFAULT 0,
+			input_token_details_json TEXT NULL,
+			output_token_details_json TEXT NULL,
+			provider_usage_json TEXT NULL,
+			cost_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			price_version_id BIGINT NULL,
+			started_at DATETIME NULL,
+			finished_at DATETIME NULL,
+			redis_stream_id VARCHAR(128) NOT NULL DEFAULT '',
+			occurred_at DATETIME NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			INDEX idx_billing_usage_event_consumer_time (consumer_name, occurred_at)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS quota_policy_user (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			consumer_name VARCHAR(128) NOT NULL UNIQUE,
+			limit_total_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			limit_5h_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			limit_daily_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			daily_reset_mode VARCHAR(16) NOT NULL DEFAULT 'fixed',
+			daily_reset_time VARCHAR(5) NOT NULL DEFAULT '00:00',
+			limit_weekly_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			limit_monthly_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			cost_reset_at DATETIME NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS billing_model_catalog (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			model_id VARCHAR(128) NOT NULL UNIQUE,
+			name VARCHAR(128) NOT NULL,
+			vendor VARCHAR(128) NOT NULL,
+			capability VARCHAR(255) NOT NULL,
+			endpoint VARCHAR(255) NOT NULL,
+			sdk VARCHAR(128) NOT NULL,
+			summary TEXT NOT NULL,
+			status VARCHAR(16) NOT NULL DEFAULT 'active',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			INDEX idx_billing_model_status (status)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS billing_model_price_version (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			model_id VARCHAR(128) NOT NULL,
+			currency VARCHAR(8) NOT NULL DEFAULT 'CNY',
+			input_price_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			output_price_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			effective_from DATETIME NOT NULL,
+			effective_to DATETIME NULL,
+			status VARCHAR(16) NOT NULL DEFAULT 'active',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			INDEX idx_billing_model_price_active (model_id, status, effective_to),
+			INDEX idx_billing_model_price_time (effective_from)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 	}
 
 	for _, ddl := range migrations {
 		if _, err := s.db.Exec(ctx, ddl); err != nil {
 			return gerror.Wrap(err, "migration failed")
 		}
+	}
+	if err := s.ensurePortalUserLevelColumn(ctx); err != nil {
+		return err
+	}
+	if err := s.ensurePortalAPIKeyColumns(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureBillingTransactionColumns(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureBillingUsageEventColumns(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) ensurePortalUserLevelColumn(ctx context.Context) error {
+	existed, err := s.db.GetValue(ctx, `
+		SELECT COUNT(1)
+		FROM information_schema.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE()
+		  AND TABLE_NAME = 'portal_user'
+		  AND COLUMN_NAME = 'user_level'`)
+	if err != nil {
+		return gerror.Wrap(err, "query portal_user.user_level existence failed")
+	}
+	if existed.Int() > 0 {
+		return nil
+	}
+	if _, err = s.db.Exec(ctx,
+		`ALTER TABLE portal_user ADD COLUMN user_level VARCHAR(16) NOT NULL DEFAULT 'normal' AFTER department`); err != nil {
+		return gerror.Wrap(err, "add portal_user.user_level column failed")
+	}
+	return nil
+}
+
+func (s *Service) ensurePortalAPIKeyColumns(ctx context.Context) error {
+	changes := []struct {
+		column string
+		sql    string
+	}{
+		{"expires_at", `ALTER TABLE portal_api_key ADD COLUMN expires_at DATETIME NULL AFTER last_used_at`},
+		{"deleted_at", `ALTER TABLE portal_api_key ADD COLUMN deleted_at DATETIME NULL AFTER expires_at`},
+		{"limit_total_micro_yuan",
+			`ALTER TABLE portal_api_key ADD COLUMN limit_total_micro_yuan BIGINT NOT NULL DEFAULT 0 AFTER deleted_at`},
+		{"limit_5h_micro_yuan",
+			`ALTER TABLE portal_api_key ADD COLUMN limit_5h_micro_yuan BIGINT NOT NULL DEFAULT 0 AFTER limit_total_micro_yuan`},
+		{"limit_daily_micro_yuan",
+			`ALTER TABLE portal_api_key ADD COLUMN limit_daily_micro_yuan BIGINT NOT NULL DEFAULT 0 AFTER limit_5h_micro_yuan`},
+		{"daily_reset_mode",
+			`ALTER TABLE portal_api_key ADD COLUMN daily_reset_mode VARCHAR(16) NOT NULL DEFAULT 'fixed' AFTER limit_daily_micro_yuan`},
+		{"daily_reset_time",
+			`ALTER TABLE portal_api_key ADD COLUMN daily_reset_time VARCHAR(5) NOT NULL DEFAULT '00:00' AFTER daily_reset_mode`},
+		{"limit_weekly_micro_yuan",
+			`ALTER TABLE portal_api_key ADD COLUMN limit_weekly_micro_yuan BIGINT NOT NULL DEFAULT 0 AFTER daily_reset_time`},
+		{"limit_monthly_micro_yuan",
+			`ALTER TABLE portal_api_key ADD COLUMN limit_monthly_micro_yuan BIGINT NOT NULL DEFAULT 0 AFTER limit_weekly_micro_yuan`},
+	}
+	for _, item := range changes {
+		if err := s.ensureTableColumn(ctx, "portal_api_key", item.column, item.sql); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) ensureBillingTransactionColumns(ctx context.Context) error {
+	return s.ensureTableColumn(ctx, "billing_transaction", "api_key_id",
+		`ALTER TABLE billing_transaction ADD COLUMN api_key_id VARCHAR(64) NULL AFTER request_id`)
+}
+
+func (s *Service) ensureBillingUsageEventColumns(ctx context.Context) error {
+	changes := []struct {
+		column string
+		sql    string
+	}{
+		{"trace_id", `ALTER TABLE billing_usage_event ADD COLUMN trace_id VARCHAR(128) NULL AFTER request_id`},
+		{"api_key_id", `ALTER TABLE billing_usage_event ADD COLUMN api_key_id VARCHAR(64) NULL AFTER consumer_name`},
+		{"request_path",
+			`ALTER TABLE billing_usage_event ADD COLUMN request_path VARCHAR(255) NOT NULL DEFAULT '' AFTER route_name`},
+		{"request_kind",
+			`ALTER TABLE billing_usage_event ADD COLUMN request_kind VARCHAR(64) NOT NULL DEFAULT '' AFTER request_path`},
+		{"request_status",
+			`ALTER TABLE billing_usage_event ADD COLUMN request_status VARCHAR(16) NOT NULL DEFAULT 'success' AFTER model_id`},
+		{"usage_status",
+			`ALTER TABLE billing_usage_event ADD COLUMN usage_status VARCHAR(16) NOT NULL DEFAULT 'parsed' AFTER request_status`},
+		{"http_status", `ALTER TABLE billing_usage_event ADD COLUMN http_status INT NOT NULL DEFAULT 200 AFTER usage_status`},
+		{"error_code",
+			`ALTER TABLE billing_usage_event ADD COLUMN error_code VARCHAR(64) NOT NULL DEFAULT '' AFTER http_status`},
+		{"error_message",
+			`ALTER TABLE billing_usage_event ADD COLUMN error_message VARCHAR(512) NOT NULL DEFAULT '' AFTER error_code`},
+		{"input_token_details_json",
+			`ALTER TABLE billing_usage_event ADD COLUMN input_token_details_json TEXT NULL AFTER total_tokens`},
+		{"output_token_details_json",
+			`ALTER TABLE billing_usage_event ADD COLUMN output_token_details_json TEXT NULL AFTER input_token_details_json`},
+		{"provider_usage_json",
+			`ALTER TABLE billing_usage_event ADD COLUMN provider_usage_json TEXT NULL AFTER output_token_details_json`},
+		{"started_at", `ALTER TABLE billing_usage_event ADD COLUMN started_at DATETIME NULL AFTER price_version_id`},
+		{"finished_at", `ALTER TABLE billing_usage_event ADD COLUMN finished_at DATETIME NULL AFTER started_at`},
+	}
+	for _, item := range changes {
+		if err := s.ensureTableColumn(ctx, "billing_usage_event", item.column, item.sql); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) ensureTableColumn(ctx context.Context, tableName string, columnName string, alterSQL string) error {
+	existed, err := s.db.GetValue(ctx, `
+		SELECT COUNT(1)
+		FROM information_schema.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE()
+		  AND TABLE_NAME = ?
+		  AND COLUMN_NAME = ?`, tableName, columnName)
+	if err != nil {
+		return gerror.Wrapf(err, "query %s.%s existence failed", tableName, columnName)
+	}
+	if existed.Int() > 0 {
+		return nil
+	}
+	if _, err = s.db.Exec(ctx, alterSQL); err != nil {
+		return gerror.Wrapf(err, "add %s.%s column failed", tableName, columnName)
 	}
 	return nil
 }

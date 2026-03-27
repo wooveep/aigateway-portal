@@ -32,10 +32,10 @@
           <a-descriptions-item label="说明">{{ selectedModel.summary }}</a-descriptions-item>
         </a-descriptions>
         <a-card title="调用示例" class="portal-card">
-          <pre class="code-block">curl -X POST https://api.example.com{{ selectedModel.endpoint }} \
-  -H "Authorization: Bearer $API_KEY" \
+          <pre class="code-block">curl -X POST {{ buildRequestUrl(selectedModel) }} \
+  -H "x-api-key: $API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model":"{{ selectedModel.name }}","messages":[{"role":"user","content":"Hello"}]}'</pre>
+  -d '{"model":"{{ selectedModel.id }}","messages":[{"role":"user","content":"Hello"}]}'</pre>
         </a-card>
       </template>
     </a-drawer>
@@ -76,6 +76,15 @@ const buildOutputPriceText = (model: ModelInfo) => {
 
 const buildPricingText = (model: ModelInfo) => {
   return `输入 ${buildInputPriceText(model)}，输出 ${buildOutputPriceText(model)}`;
+};
+
+const buildRequestUrl = (model: ModelInfo) => {
+  const endpoint = (model.endpoint || '').trim();
+  if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+    return endpoint;
+  }
+  const normalizedPath = endpoint && endpoint !== '-' ? endpoint : '/v1/chat/completions';
+  return `https://api.example.com${normalizedPath}`;
 };
 
 const loadModels = async () => {

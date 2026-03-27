@@ -33,6 +33,8 @@ func mainFunc(ctx context.Context, parser *gcmd.Parser) (err error) {
 	rootCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	svc.StartUsageSync(rootCtx)
+	svc.StartKeyAuthSync(rootCtx)
+	svc.StartBillingSync(rootCtx)
 
 	ctrl := portalController.New(svc, cfg.WebRoot)
 	authMw := middleware.NewAuth(svc)
@@ -68,6 +70,7 @@ func mainFunc(ctx context.Context, parser *gcmd.Parser) (err error) {
 
 				biz.GET("/open-platform/keys", ctrl.ListAPIKeys)
 				biz.POST("/open-platform/keys", ctrl.CreateAPIKey)
+				biz.PUT("/open-platform/keys/:id", ctrl.UpdateAPIKey)
 				biz.PATCH("/open-platform/keys/:id/status", ctrl.UpdateAPIKeyStatus)
 				biz.DELETE("/open-platform/keys/:id", ctrl.DeleteAPIKey)
 				biz.GET("/open-platform/stats", ctrl.OpenStats)

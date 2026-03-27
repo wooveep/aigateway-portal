@@ -1,71 +1,15 @@
-2026-03-23T07:09:29.869+08:00 [INFO] pid[657747]: http server started listening on [:8081]
-2026-03-23T07:09:29.869+08:00 [INFO] openapi specification is disabled
+connect mysql failed: master.Ping failed: dial tcp 127.0.0.1:3306: connect: connection refused
+1. connect mysql failed
+   1).  higress-portal-backend/internal/service/portal.New
+        /home/cloudyi/code/aigateway-group/aigateway-portal/backend/internal/service/portal/service.go:47
+2. master.Ping failed
+   1).  higress-portal-backend/internal/service/portal.New
+        /home/cloudyi/code/aigateway-group/aigateway-portal/backend/internal/service/portal/service.go:46
+   2).  higress-portal-backend/internal/cmd.mainFunc
+        /home/cloudyi/code/aigateway-group/aigateway-portal/backend/internal/cmd/cmd.go:27
+   3).  main.main
+        /home/cloudyi/code/aigateway-group/aigateway-portal/backend/main.go:10
+3. dial tcp 127.0.0.1:3306: connect: connection refused
 
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| ADDRESS | METHOD |               ROUTE                |                                       HANDLER                                        |         MIDDLEWARE         |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | ALL    | /*                                 | higress-portal-backend/internal/controller/portal.(*Controller).Frontend             | ghttp.MiddlewareCORS       |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | POST   | /api/auth/login                    | higress-portal-backend/internal/controller/portal.(*Controller).Login                | ghttp.MiddlewareCORS       |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | POST   | /api/auth/logout                   | higress-portal-backend/internal/controller/portal.(*Controller).Logout               | ghttp.MiddlewareCORS       |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | GET    | /api/auth/me                       | higress-portal-backend/internal/controller/portal.(*Controller).Me                   | ghttp.MiddlewareCORS       |
-|         |        |                                    |                                                                                      | middleware.(*Auth).Handler |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | POST   | /api/auth/register                 | higress-portal-backend/internal/controller/portal.(*Controller).Register             | ghttp.MiddlewareCORS       |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | GET    | /api/billing/consumptions          | higress-portal-backend/internal/controller/portal.(*Controller).Consumptions         | ghttp.MiddlewareCORS       |
-|         |        |                                    |                                                                                      | middleware.(*Auth).Handler |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | GET    | /api/billing/overview              | higress-portal-backend/internal/controller/portal.(*Controller).BillingOverview      | ghttp.MiddlewareCORS       |
-|         |        |                                    |                                                                                      | middleware.(*Auth).Handler |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | GET    | /api/billing/recharges             | higress-portal-backend/internal/controller/portal.(*Controller).Recharges            | ghttp.MiddlewareCORS       |
-|         |        |                                    |                                                                                      | middleware.(*Auth).Handler |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | POST   | /api/billing/recharges             | higress-portal-backend/internal/controller/portal.(*Controller).CreateRecharge       | ghttp.MiddlewareCORS       |
-|         |        |                                    |                                                                                      | middleware.(*Auth).Handler |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | GET    | /api/health                        | higress-portal-backend/internal/controller/portal.(*Controller).Health               | ghttp.MiddlewareCORS       |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | GET    | /api/invoices/profile              | higress-portal-backend/internal/controller/portal.(*Controller).GetInvoiceProfile    | ghttp.MiddlewareCORS       |
-|         |        |                                    |                                                                                      | middleware.(*Auth).Handler |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | PUT    | /api/invoices/profile              | higress-portal-backend/internal/controller/portal.(*Controller).UpdateInvoiceProfile | ghttp.MiddlewareCORS       |
-|         |        |                                    |                                                                                      | middleware.(*Auth).Handler |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | GET    | /api/invoices/records              | higress-portal-backend/internal/controller/portal.(*Controller).InvoiceRecords       | ghttp.MiddlewareCORS       |
-|         |        |                                    |                                                                                      | middleware.(*Auth).Handler |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | POST   | /api/invoices/records              | higress-portal-backend/internal/controller/portal.(*Controller).CreateInvoice        | ghttp.MiddlewareCORS       |
-|         |        |                                    |                                                                                      | middleware.(*Auth).Handler |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | GET    | /api/models                        | higress-portal-backend/internal/controller/portal.(*Controller).ListModels           | ghttp.MiddlewareCORS       |
-|         |        |                                    |                                                                                      | middleware.(*Auth).Handler |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | GET    | /api/models/:id                    | higress-portal-backend/internal/controller/portal.(*Controller).ModelDetail          | ghttp.MiddlewareCORS       |
-|         |        |                                    |                                                                                      | middleware.(*Auth).Handler |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | GET    | /api/open-platform/cost-details    | higress-portal-backend/internal/controller/portal.(*Controller).CostDetails          | ghttp.MiddlewareCORS       |
-|         |        |                                    |                                                                                      | middleware.(*Auth).Handler |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | GET    | /api/open-platform/keys            | higress-portal-backend/internal/controller/portal.(*Controller).ListAPIKeys          | ghttp.MiddlewareCORS       |
-|         |        |                                    |                                                                                      | middleware.(*Auth).Handler |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | POST   | /api/open-platform/keys            | higress-portal-backend/internal/controller/portal.(*Controller).CreateAPIKey         | ghttp.MiddlewareCORS       |
-|         |        |                                    |                                                                                      | middleware.(*Auth).Handler |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | DELETE | /api/open-platform/keys/:id        | higress-portal-backend/internal/controller/portal.(*Controller).DeleteAPIKey         | ghttp.MiddlewareCORS       |
-|         |        |                                    |                                                                                      | middleware.(*Auth).Handler |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | PATCH  | /api/open-platform/keys/:id/status | higress-portal-backend/internal/controller/portal.(*Controller).UpdateAPIKeyStatus   | ghttp.MiddlewareCORS       |
-|         |        |                                    |                                                                                      | middleware.(*Auth).Handler |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
-| :8081   | GET    | /api/open-platform/stats           | higress-portal-backend/internal/controller/portal.(*Controller).OpenStats            | ghttp.MiddlewareCORS       |
-|         |        |                                    |                                                                                      | middleware.(*Auth).Handler |
-----------|--------|------------------------------------|--------------------------------------------------------------------------------------|-----------------------------
 
-2026-03-23T07:39:26.939+08:00 657747: server gracefully shutting down by signal: terminated
-2026-03-23T07:39:26.939+08:00 [INFO] pid[657747]: all servers shutdown
-[mysql] 2026/03/23 07:39:26 packets.go:155 write tcp 127.0.0.1:42810->127.0.0.1:3306: write: broken pipe
+exit status 1

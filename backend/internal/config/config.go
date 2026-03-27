@@ -10,54 +10,68 @@ import (
 )
 
 type Config struct {
-	ListenAddr          string
-	MySQLDSN            string
-	MySQLHost           string
-	MySQLPort           string
-	MySQLUser           string
-	MySQLPassword       string
-	MySQLDatabase       string
-	MySQLParams         string
-	K8sNamespace        string
-	KubeConfigPath      string
-	SessionCookieName   string
-	SessionSecret       string
-	SessionTTL          time.Duration
-	SessionSecureCookie bool
-	InviteCode          string
-	InviteExpireDays    int
-	CorePrometheusURL   string
-	UsageSyncInterval   time.Duration
-	UsageSyncEnabled    bool
-	ShutdownGracePeriod time.Duration
-	PortalDisplayName   string
-	WebRoot             string
+	ListenAddr                   string
+	MySQLDSN                     string
+	MySQLHost                    string
+	MySQLPort                    string
+	MySQLUser                    string
+	MySQLPassword                string
+	MySQLDatabase                string
+	MySQLParams                  string
+	K8sNamespace                 string
+	KubeConfigPath               string
+	SessionCookieName            string
+	SessionSecret                string
+	SessionTTL                   time.Duration
+	SessionSecureCookie          bool
+	InviteCode                   string
+	InviteExpireDays             int
+	CorePrometheusURL            string
+	UsageSyncInterval            time.Duration
+	UsageSyncEnabled             bool
+	KeyAuthSyncInterval          time.Duration
+	KeyAuthSyncEnabled           bool
+	BillingSyncInterval          time.Duration
+	BillingSyncEnabled           bool
+	BillingConsumerBlock         time.Duration
+	BillingConsumerBatchSize     int
+	RechargeFallbackAvgCostPer1K float64
+	ShutdownGracePeriod          time.Duration
+	PortalDisplayName            string
+	WebRoot                      string
 }
 
 func Load() Config {
 	cfg := Config{
-		ListenAddr:          getEnv("PORTAL_LISTEN_ADDR", ":8080"),
-		MySQLDSN:            getEnv("PORTAL_MYSQL_DSN", ""),
-		MySQLHost:           getEnv("PORTAL_MYSQL_HOST", "127.0.0.1"),
-		MySQLPort:           getEnv("PORTAL_MYSQL_PORT", "3306"),
-		MySQLUser:           getEnv("PORTAL_MYSQL_USER", "root"),
-		MySQLPassword:       getEnv("PORTAL_MYSQL_PASSWORD", "root"),
-		MySQLDatabase:       getEnv("PORTAL_MYSQL_DATABASE", "aigateway_portal"),
-		MySQLParams:         getEnv("PORTAL_MYSQL_PARAMS", "parseTime=true&charset=utf8mb4&loc=Local"),
-		K8sNamespace:        firstNonEmptyEnv("PORTAL_K8S_NAMESPACE", "POD_NAMESPACE"),
-		KubeConfigPath:      firstNonEmptyEnv("PORTAL_K8S_KUBECONFIG", "KUBECONFIG"),
-		SessionCookieName:   getEnv("PORTAL_SESSION_COOKIE_NAME", "aigateway_portal_session"),
-		SessionSecret:       getEnv("PORTAL_SESSION_SECRET", "dev-session-secret"),
-		SessionTTL:          time.Duration(getEnvInt("PORTAL_SESSION_TTL_HOURS", 72)) * time.Hour,
-		SessionSecureCookie: getEnvBool("PORTAL_SESSION_SECURE", false),
-		InviteCode:          getEnv("PORTAL_BOOTSTRAP_INVITE_CODE", ""),
-		InviteExpireDays:    getEnvInt("PORTAL_BOOTSTRAP_INVITE_EXPIRE_DAYS", 365),
-		CorePrometheusURL:   getEnv("PORTAL_CORE_PROMETHEUS_URL", ""),
-		UsageSyncInterval:   time.Duration(getEnvInt("PORTAL_USAGE_SYNC_SECONDS", 300)) * time.Second,
-		UsageSyncEnabled:    getEnvBool("PORTAL_USAGE_SYNC_ENABLED", true),
-		ShutdownGracePeriod: time.Duration(getEnvInt("PORTAL_SHUTDOWN_GRACE_SECONDS", 10)) * time.Second,
-		PortalDisplayName:   getEnv("PORTAL_DISPLAY_NAME", "AIGateway 用户门户"),
-		WebRoot:             getEnv("PORTAL_WEB_ROOT", "/app/web"),
+		ListenAddr:                   getEnv("PORTAL_LISTEN_ADDR", ":8080"),
+		MySQLDSN:                     getEnv("PORTAL_MYSQL_DSN", ""),
+		MySQLHost:                    getEnv("PORTAL_MYSQL_HOST", "127.0.0.1"),
+		MySQLPort:                    getEnv("PORTAL_MYSQL_PORT", "3306"),
+		MySQLUser:                    getEnv("PORTAL_MYSQL_USER", "root"),
+		MySQLPassword:                getEnv("PORTAL_MYSQL_PASSWORD", "root"),
+		MySQLDatabase:                getEnv("PORTAL_MYSQL_DATABASE", "aigateway_portal"),
+		MySQLParams:                  getEnv("PORTAL_MYSQL_PARAMS", "parseTime=true&charset=utf8mb4&loc=Local"),
+		K8sNamespace:                 firstNonEmptyEnv("PORTAL_K8S_NAMESPACE", "POD_NAMESPACE"),
+		KubeConfigPath:               firstNonEmptyEnv("PORTAL_K8S_KUBECONFIG", "KUBECONFIG"),
+		SessionCookieName:            getEnv("PORTAL_SESSION_COOKIE_NAME", "aigateway_portal_session"),
+		SessionSecret:                getEnv("PORTAL_SESSION_SECRET", "dev-session-secret"),
+		SessionTTL:                   time.Duration(getEnvInt("PORTAL_SESSION_TTL_HOURS", 72)) * time.Hour,
+		SessionSecureCookie:          getEnvBool("PORTAL_SESSION_SECURE", false),
+		InviteCode:                   getEnv("PORTAL_BOOTSTRAP_INVITE_CODE", ""),
+		InviteExpireDays:             getEnvInt("PORTAL_BOOTSTRAP_INVITE_EXPIRE_DAYS", 365),
+		CorePrometheusURL:            getEnv("PORTAL_CORE_PROMETHEUS_URL", ""),
+		UsageSyncInterval:            time.Duration(getEnvInt("PORTAL_USAGE_SYNC_SECONDS", 300)) * time.Second,
+		UsageSyncEnabled:             getEnvBool("PORTAL_USAGE_SYNC_ENABLED", true),
+		KeyAuthSyncInterval:          time.Duration(getEnvInt("PORTAL_KEYAUTH_SYNC_SECONDS", 2)) * time.Second,
+		KeyAuthSyncEnabled:           getEnvBool("PORTAL_KEYAUTH_SYNC_ENABLED", true),
+		BillingSyncInterval:          time.Duration(getEnvInt("PORTAL_BILLING_SYNC_SECONDS", 15)) * time.Second,
+		BillingSyncEnabled:           getEnvBool("PORTAL_BILLING_SYNC_ENABLED", true),
+		BillingConsumerBlock:         time.Duration(getEnvInt("PORTAL_BILLING_CONSUMER_BLOCK_SECONDS", 5)) * time.Second,
+		BillingConsumerBatchSize:     getEnvInt("PORTAL_BILLING_CONSUMER_BATCH_SIZE", 20),
+		RechargeFallbackAvgCostPer1K: getEnvFloat("PORTAL_RECHARGE_FALLBACK_AVG_COST_PER_1K", 0.02),
+		ShutdownGracePeriod:          time.Duration(getEnvInt("PORTAL_SHUTDOWN_GRACE_SECONDS", 10)) * time.Second,
+		PortalDisplayName:            getEnv("PORTAL_DISPLAY_NAME", "AIGateway 用户门户"),
+		WebRoot:                      getEnv("PORTAL_WEB_ROOT", "/app/web"),
 	}
 	if cfg.MySQLDSN == "" && !hasPortalMySQLConnEnv() {
 		applySharedPortalDB(&cfg)
@@ -192,6 +206,18 @@ func getEnvBool(key string, defaultValue bool) bool {
 		return defaultValue
 	}
 	parsed, err := strconv.ParseBool(v)
+	if err != nil {
+		return defaultValue
+	}
+	return parsed
+}
+
+func getEnvFloat(key string, defaultValue float64) float64 {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.ParseFloat(v, 64)
 	if err != nil {
 		return defaultValue
 	}

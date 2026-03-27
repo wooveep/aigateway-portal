@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -31,6 +32,11 @@ var (
 		Group:    "networking.higress.io",
 		Version:  "v1",
 		Resource: "mcpbridges",
+	}
+	ingressGVR = schema.GroupVersionResource{
+		Group:    "networking.k8s.io",
+		Version:  "v1",
+		Resource: "ingresses",
 	}
 )
 
@@ -72,6 +78,11 @@ type ProviderModel struct {
 	Protocol string
 	Endpoint string
 	Meta     ProviderModelMeta
+}
+
+type providerRouteBinding struct {
+	Path       string
+	ExactModel string
 }
 
 type Client struct {
@@ -122,11 +133,24 @@ func (c *Client) ListEnabledModels(ctx context.Context) ([]ProviderModel, error)
 	if err != nil {
 		return nil, err
 	}
+	routeBindings, err := c.listProviderRouteBindings(ctx)
+	if err != nil {
+		routeBindings = map[string]providerRouteBinding{}
+	}
 
 	items := make([]ProviderModel, 0, len(providers))
 	for _, item := range providers {
-		if _, ok := registryNames[buildRegistryName(item.ID)]; !ok {
+		registryName := buildRegistryName(item.ID)
+		if _, ok := registryNames[registryName]; !ok {
 			continue
+		}
+		if binding, ok := routeBindings[registryName]; ok {
+			if binding.Path != "" {
+				item.Endpoint = buildGatewayEndpoint(binding.Path, item.Protocol, item.Endpoint)
+			}
+			if binding.ExactModel != "" {
+				item.ID = binding.ExactModel
+			}
 		}
 		items = append(items, item)
 	}
@@ -228,6 +252,39 @@ func (c *Client) listRegistryNames(ctx context.Context) (map[string]struct{}, er
 	return result, nil
 }
 
+func (c *Client) listProviderRouteBindings(ctx context.Context) (map[string]providerRouteBinding, error) {
+	result := make(map[string]providerRouteBinding)
+	list, err := c.dynamicClient.Resource(ingressGVR).Namespace(c.namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, gerror.Wrap(err, "list gateway ingresses failed")
+	}
+	if list == nil || len(list.Items) == 0 {
+		return result, nil
+	}
+
+	for _, item := range list.Items {
+		destination, _, _ := unstructured.NestedString(item.Object, "metadata", "annotations", "higress.io/destination")
+		registryName := normalizeDestinationRegistryName(destination)
+		if registryName == "" {
+			continue
+		}
+		routePath := firstIngressPath(item.Object)
+		exactModel := extractExactModelHeader(item.Object)
+		if routePath == "" && exactModel == "" {
+			continue
+		}
+		binding := result[registryName]
+		if routePath != "" {
+			binding.Path = routePath
+		}
+		if exactModel != "" {
+			binding.ExactModel = exactModel
+		}
+		result[registryName] = binding
+	}
+	return result, nil
+}
+
 func buildRestConfig(kubeConfigPath string) (*rest.Config, error) {
 	if kubeConfigPath != "" {
 		cfg, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
@@ -300,6 +357,105 @@ func inferProviderEndpoint(provider map[string]any) string {
 		return domain
 	}
 	return ""
+}
+
+func normalizeDestinationRegistryName(destination string) string {
+	destination = strings.TrimSpace(destination)
+	if destination == "" {
+		return ""
+	}
+	if host, _, ok := strings.Cut(destination, ":"); ok {
+		destination = host
+	}
+	destination = strings.TrimSuffix(destination, ".dns")
+	return destination
+}
+
+func firstIngressPath(object map[string]any) string {
+	rules, found, err := unstructured.NestedSlice(object, "spec", "rules")
+	if err != nil || !found {
+		return ""
+	}
+	for _, ruleItem := range rules {
+		ruleMap, ok := ruleItem.(map[string]any)
+		if !ok {
+			continue
+		}
+		httpMap, ok := ruleMap["http"].(map[string]any)
+		if !ok {
+			continue
+		}
+		paths, ok := httpMap["paths"].([]any)
+		if !ok {
+			continue
+		}
+		for _, pathItem := range paths {
+			pathMap, ok := pathItem.(map[string]any)
+			if !ok {
+				continue
+			}
+			path := strings.TrimSpace(asString(pathMap["path"]))
+			if path != "" {
+				return path
+			}
+		}
+	}
+	return ""
+}
+
+func extractExactModelHeader(object map[string]any) string {
+	exactModel, _, _ := unstructured.NestedString(object, "metadata", "annotations", "higress.io/exact-match-header-x-higress-llm-model")
+	return strings.TrimSpace(exactModel)
+}
+
+func buildGatewayEndpoint(routePath string, protocol string, fallbackEndpoint string) string {
+	routePath = normalizePath(routePath)
+	suffix := normalizeEndpointSuffix(fallbackEndpoint, protocol)
+	if routePath == "" {
+		return suffix
+	}
+	if suffix == "" || suffix == "/" {
+		return routePath
+	}
+	if routePath == "/" {
+		return suffix
+	}
+	if suffix == routePath {
+		return routePath
+	}
+	return strings.TrimRight(routePath, "/") + "/" + strings.TrimLeft(suffix, "/")
+}
+
+func normalizeEndpointSuffix(endpoint string, protocol string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint != "" && endpoint != "-" {
+		if parsed, err := url.Parse(endpoint); err == nil && parsed.Path != "" {
+			return normalizePath(parsed.Path)
+		}
+		if strings.HasPrefix(endpoint, "/") {
+			return normalizePath(endpoint)
+		}
+	}
+
+	normalizedProtocol := strings.ToLower(strings.TrimSpace(protocol))
+	if strings.Contains(normalizedProtocol, "openai") {
+		return "/v1/chat/completions"
+	}
+	return ""
+}
+
+func normalizePath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	if len(path) > 1 {
+		path = strings.TrimRight(path, "/")
+	}
+	return path
 }
 
 func parsePortalModelMeta(provider map[string]any) ProviderModelMeta {

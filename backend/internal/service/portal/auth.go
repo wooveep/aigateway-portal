@@ -67,6 +67,7 @@ func (s *Service) Register(ctx context.Context, req model.RegisterRequest) (mode
 			DisplayName:  displayName,
 			Email:        strings.TrimSpace(req.Email),
 			Department:   strings.TrimSpace(req.Department),
+			UserLevel:    consts.UserLevelNormal,
 			Status:       consts.UserStatusDisabled,
 		},
 		DefaultAPIKey: "",
@@ -104,6 +105,7 @@ func (s *Service) Login(ctx context.Context, req model.LoginRequest) (model.Auth
 		DisplayName:  user.DisplayName,
 		Email:        user.Email,
 		Department:   user.Department,
+		UserLevel:    normalizeUserLevel(user.UserLevel),
 		Status:       user.Status,
 	}, nil
 }
@@ -138,7 +140,7 @@ func (s *Service) ClearSession(ctx context.Context, token string) error {
 
 func (s *Service) AuthenticateSession(ctx context.Context, token string) (model.AuthUser, error) {
 	record, err := s.db.GetOne(ctx, `
-		SELECT u.consumer_name, u.display_name, u.email, u.department, u.status, u.source
+		SELECT u.consumer_name, u.display_name, u.email, u.department, u.user_level, u.status, u.source
 		FROM portal_session s
 		JOIN portal_user u ON u.consumer_name = s.consumer_name
 		WHERE s.session_token = ? AND s.expires_at > NOW()`, token)
@@ -157,6 +159,7 @@ func (s *Service) AuthenticateSession(ctx context.Context, token string) (model.
 		DisplayName:  record["display_name"].String(),
 		Email:        record["email"].String(),
 		Department:   record["department"].String(),
+		UserLevel:    normalizeUserLevel(record["user_level"].String()),
 		Status:       record["status"].String(),
 	}
 	if user.Status != consts.UserStatusActive {
@@ -182,7 +185,7 @@ func isPortalLoginBlockedUser(consumerName string, source string) bool {
 
 func (s *Service) getUserByName(ctx context.Context, consumerName string) (*model.PortalUserRow, error) {
 	record, err := s.db.GetOne(ctx, `
-		SELECT consumer_name, display_name, email, department, status, source, password_hash, last_login_at
+		SELECT consumer_name, display_name, email, department, user_level, status, source, password_hash, last_login_at
 		FROM portal_user WHERE consumer_name = ?`, consumerName)
 	if err != nil {
 		return nil, gerror.Wrap(err, "query user failed")
@@ -207,4 +210,13 @@ func hashPassword(raw string) (string, error) {
 
 func comparePassword(hash string, raw string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(raw)) == nil
+}
+
+func normalizeUserLevel(level string) string {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case consts.UserLevelNormal, consts.UserLevelPlus, consts.UserLevelPro, consts.UserLevelUltra:
+		return strings.ToLower(strings.TrimSpace(level))
+	default:
+		return consts.UserLevelNormal
+	}
 }

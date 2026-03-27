@@ -219,6 +219,22 @@ func (c *Controller) UpdateAPIKeyStatus(r *ghttp.Request) {
 	httpx.WriteJSON(r, http.StatusOK, resp)
 }
 
+func (c *Controller) UpdateAPIKey(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	keyID := r.Get("id").String()
+	var req model.UpdateAPIKeyRequest
+	if err := r.Parse(&req); err != nil {
+		httpx.WriteJSON(r, http.StatusBadRequest, g.Map{"message": "invalid request body"})
+		return
+	}
+	resp, err := c.svc.UpdateAPIKey(r.Context(), user, keyID, req)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, resp)
+}
+
 func (c *Controller) DeleteAPIKey(r *ghttp.Request) {
 	user := authUserFromRequest(r)
 	keyID := r.Get("id").String()

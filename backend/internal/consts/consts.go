@@ -11,6 +11,13 @@ const (
 )
 
 const (
+	UserLevelNormal = "normal"
+	UserLevelPlus   = "plus"
+	UserLevelPro    = "pro"
+	UserLevelUltra  = "ultra"
+)
+
+const (
 	APIKeyStatusActive   = "active"
 	APIKeyStatusDisabled = "disabled"
 )

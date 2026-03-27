@@ -5,11 +5,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/errors/gerror"
 
 	"higress-portal-backend/internal/model"
 )
+
+const usageReadSyncMinInterval = 15 * time.Second
 
 func (s *Service) StartUsageSync(ctx context.Context) {
 	if !s.cfg.UsageSyncEnabled {
@@ -54,66 +55,121 @@ func (s *Service) syncUsageOnce(ctx context.Context) error {
 		return nil
 	}
 
-	return s.db.Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
-		for _, item := range stats {
-			consumerName := model.NormalizeUsername(item.ConsumerName)
-			if consumerName == "" {
-				continue
-			}
-
-			inputPrice, outputPrice, priceErr := s.getModelPrices(ctx, item.ModelName)
-			if priceErr != nil {
-				s.logf(ctx, "get model price failed: model=%s err=%v", item.ModelName, priceErr)
-				inputPrice = 0
-				outputPrice = 0
-			}
-			cost := calculateCost(item.InputTokens, item.OutputTokens, inputPrice, outputPrice)
-
-			if _, txErr := tx.Exec(`
-				INSERT INTO portal_usage_daily
-				(billing_date, consumer_name, model_name, request_count, input_tokens, output_tokens, total_tokens, cost_amount, source_from, source_to)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-				ON DUPLICATE KEY UPDATE
-				request_count = VALUES(request_count),
-				input_tokens = VALUES(input_tokens),
-				output_tokens = VALUES(output_tokens),
-				total_tokens = VALUES(total_tokens),
-				cost_amount = VALUES(cost_amount),
-				source_from = VALUES(source_from),
-				source_to = VALUES(source_to)`,
-				from.Format("2006-01-02"),
-				consumerName,
-				item.ModelName,
-				item.RequestCount,
-				item.InputTokens,
-				item.OutputTokens,
-				item.TotalTokens,
-				cost,
-				from,
-				now,
-			); txErr != nil {
-				return gerror.Wrap(txErr, "upsert usage daily failed")
-			}
-		}
-		return nil
-	})
-}
-
-func (s *Service) getModelPrices(ctx context.Context, modelName string) (float64, float64, error) {
-	record, err := s.db.GetOne(ctx, `
-		SELECT input_token_price, output_token_price
-		FROM portal_model_catalog
-		WHERE name = ? OR model_id = ?
-		LIMIT 1`, modelName, modelName)
+	ledgerStats, err := s.loadUsageStatsFromLedger(ctx, from, now)
 	if err != nil {
-		return 0, 0, gerror.Wrap(err, "query model prices failed")
+		return gerror.Wrap(err, "load usage stats from ledger failed")
 	}
-	if record.IsEmpty() {
-		return 0, 0, nil
+	diffCount := s.logUsageReconcileDiff(ctx, stats, ledgerStats)
+	if diffCount > 0 {
+		s.logf(ctx, "usage reconcile found %d mismatched consumer/model pairs between Prometheus and billing ledger", diffCount)
 	}
-	return record["input_token_price"].Float64(), record["output_token_price"].Float64(), nil
+	return nil
 }
 
 func calculateCost(inputTokens int64, outputTokens int64, inputPrice float64, outputPrice float64) float64 {
 	return (float64(inputTokens)/1000.0)*inputPrice + (float64(outputTokens)/1000.0)*outputPrice
+}
+
+func (s *Service) syncUsageForRead(ctx context.Context) {
+	if !s.cfg.UsageSyncEnabled {
+		return
+	}
+	if strings.TrimSpace(s.cfg.CorePrometheusURL) == "" {
+		return
+	}
+
+	now := time.Now()
+	s.usageReadSyncMu.Lock()
+	if !s.usageReadSyncAt.IsZero() && now.Sub(s.usageReadSyncAt) < usageReadSyncMinInterval {
+		s.usageReadSyncMu.Unlock()
+		return
+	}
+	s.usageReadSyncAt = now
+	s.usageReadSyncMu.Unlock()
+
+	_ = s.syncUsageOnce(ctx)
+}
+
+func (s *Service) loadUsageStatsFromLedger(ctx context.Context, from time.Time, to time.Time) ([]model.ConsumerUsageStat, error) {
+	records, err := s.db.GetAll(ctx, `
+		SELECT
+			consumer_name,
+			model_id,
+			COUNT(1) AS request_count,
+			COALESCE(SUM(input_tokens), 0) AS input_tokens,
+			COALESCE(SUM(output_tokens), 0) AS output_tokens
+		FROM billing_usage_event
+		WHERE request_status = 'success'
+		  AND usage_status = 'parsed'
+		  AND occurred_at >= ?
+		  AND occurred_at < ?
+		GROUP BY consumer_name, model_id`, from, to)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.ConsumerUsageStat, 0, len(records))
+	for _, record := range records {
+		input := record["input_tokens"].Int64()
+		output := record["output_tokens"].Int64()
+		items = append(items, model.ConsumerUsageStat{
+			ConsumerName: model.NormalizeUsername(record["consumer_name"].String()),
+			ModelName:    strings.TrimSpace(record["model_id"].String()),
+			RequestCount: record["request_count"].Int64(),
+			InputTokens:  input,
+			OutputTokens: output,
+			TotalTokens:  input + output,
+		})
+	}
+	return items, nil
+}
+
+func (s *Service) logUsageReconcileDiff(ctx context.Context, metrics []model.ConsumerUsageStat, ledger []model.ConsumerUsageStat) int {
+	type usageKey struct {
+		consumer string
+		model    string
+	}
+	toMap := func(values []model.ConsumerUsageStat) map[usageKey]model.ConsumerUsageStat {
+		index := make(map[usageKey]model.ConsumerUsageStat, len(values))
+		for _, item := range values {
+			key := usageKey{
+				consumer: model.NormalizeUsername(item.ConsumerName),
+				model:    strings.TrimSpace(item.ModelName),
+			}
+			index[key] = item
+		}
+		return index
+	}
+
+	metricMap := toMap(metrics)
+	ledgerMap := toMap(ledger)
+	diffCount := 0
+	for key, metricItem := range metricMap {
+		ledgerItem, ok := ledgerMap[key]
+		if !ok {
+			diffCount++
+			s.logf(ctx, "usage reconcile missing ledger pair: consumer=%s model=%s metric_calls=%d metric_tokens=%d",
+				key.consumer, key.model, metricItem.RequestCount, metricItem.TotalTokens)
+			continue
+		}
+		if metricItem.RequestCount != ledgerItem.RequestCount ||
+			metricItem.InputTokens != ledgerItem.InputTokens ||
+			metricItem.OutputTokens != ledgerItem.OutputTokens {
+			diffCount++
+			s.logf(ctx,
+				"usage reconcile mismatch: consumer=%s model=%s metric(calls=%d,input=%d,output=%d) ledger(calls=%d,input=%d,output=%d)",
+				key.consumer, key.model,
+				metricItem.RequestCount, metricItem.InputTokens, metricItem.OutputTokens,
+				ledgerItem.RequestCount, ledgerItem.InputTokens, ledgerItem.OutputTokens,
+			)
+		}
+	}
+	for key, ledgerItem := range ledgerMap {
+		if _, ok := metricMap[key]; ok {
+			continue
+		}
+		diffCount++
+		s.logf(ctx, "usage reconcile missing prometheus pair: consumer=%s model=%s ledger_calls=%d ledger_tokens=%d",
+			key.consumer, key.model, ledgerItem.RequestCount, ledgerItem.TotalTokens)
+	}
+	return diffCount
 }

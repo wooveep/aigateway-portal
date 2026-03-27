@@ -6,7 +6,7 @@ imagePullSecrets: []
 
 image:
   repository: aigateway/portal
-  tag: "0.2.0"
+  tag: "0.2.0-dev-20260327030541"
   pullPolicy: IfNotPresent
 
 service:
@@ -51,7 +51,7 @@ backend:
   # Deprecated: use top-level image instead.
   image:
     repository: aigateway/portal
-    tag: "0.2.0"
+    tag: "0.2.0-dev-20260327030541"
     pullPolicy: IfNotPresent
   # Deprecated: use top-level service.port instead.
   service:
@@ -69,6 +69,9 @@ backend:
   corePrometheusURL: ""
   usageSyncEnabled: true
   usageSyncSeconds: 300
+  keyAuthSyncEnabled: true
+  keyAuthSyncSeconds: 2
+  rechargeFallbackAvgCostPer1K: 0.02
   inviteExpireDays: 365
   shutdownGraceSeconds: 10
   displayName: AIGateway 用户门户

@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	usageMetricInputExpr   = "sum by(ai_consumer, ai_model) (increase(route_upstream_model_consumer_metric_input_token[%s]))"
-	usageMetricOutputExpr  = "sum by(ai_consumer, ai_model) (increase(route_upstream_model_consumer_metric_output_token[%s]))"
-	usageMetricRequestExpr = "sum by(ai_consumer, ai_model) (increase(route_upstream_model_consumer_metric_llm_stream_duration_count[%s]))"
+	usageMetricInputExpr           = "sum by(ai_consumer, ai_model) (increase(route_upstream_model_consumer_metric_input_token[%s]))"
+	usageMetricOutputExpr          = "sum by(ai_consumer, ai_model) (increase(route_upstream_model_consumer_metric_output_token[%s]))"
+	usageMetricRequestExpr         = "sum by(ai_consumer, ai_model) (increase(route_upstream_model_consumer_metric_llm_stream_duration_count[%s]))"
+	usageMetricRequestFallbackExpr = "sum by(ai_consumer, ai_model) (increase(route_upstream_model_consumer_metric_llm_duration_count[%s]))"
 )
 
 type usageMetricKey struct {
@@ -65,6 +66,19 @@ func (s *Service) fetchUsageStatsFromCore(ctx context.Context, from time.Time, t
 	if err != nil {
 		s.logf(ctx, "query request count metric failed, use 0 fallback: %v", err)
 		requestMap = make(map[usageMetricKey]int64)
+	}
+	if requestMap == nil {
+		requestMap = make(map[usageMetricKey]int64)
+	}
+	requestFallbackMap, fallbackErr := s.queryUsageMetric(ctx, fmt.Sprintf(usageMetricRequestFallbackExpr, rangeLiteral), to)
+	if fallbackErr != nil {
+		s.logf(ctx, "query request fallback metric failed: %v", fallbackErr)
+	} else {
+		for key, value := range requestFallbackMap {
+			if value > requestMap[key] {
+				requestMap[key] = value
+			}
+		}
 	}
 
 	merged := make(map[usageMetricKey]*model.ConsumerUsageStat)
@@ -123,55 +137,92 @@ func (s *Service) queryUsageMetric(ctx context.Context, expression string, query
 	query := url.Values{}
 	query.Set("query", expression)
 	query.Set("time", strconv.FormatInt(queryTime.Unix(), 10))
-	requestURL := baseURL + "/api/v1/query?" + query.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
-	if err != nil {
-		return nil, gerror.Wrap(err, "build prometheus request failed")
-	}
+	requestURLs := buildPrometheusQueryURLs(baseURL, query.Encode())
 
 	client := s.httpClient
 	if client == nil {
 		client = &http.Client{Timeout: 15 * time.Second}
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, gerror.Wrap(err, "query prometheus failed")
-	}
-	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, gerror.Wrap(err, "read prometheus response failed")
-	}
-	if resp.StatusCode >= http.StatusBadRequest {
-		return nil, gerror.Newf("prometheus query failed: %s, body=%s", resp.Status, truncateText(string(body), 512))
-	}
-
-	var parsed prometheusQueryResponse
-	if err = json.Unmarshal(body, &parsed); err != nil {
-		return nil, gerror.Wrap(err, "decode prometheus response failed")
-	}
-	if parsed.Status != "success" {
-		return nil, gerror.Newf("prometheus query error: type=%s, error=%s", parsed.ErrorType, parsed.Error)
-	}
-
-	values := make(map[usageMetricKey]int64, len(parsed.Data.Result))
-	for _, result := range parsed.Data.Result {
-		consumerName := strings.TrimSpace(result.Metric["ai_consumer"])
-		if consumerName == "" {
+	var lastErr error
+	for idx, requestURL := range requestURLs {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+		if err != nil {
+			lastErr = gerror.Wrap(err, "build prometheus request failed")
 			continue
 		}
-		modelName := strings.TrimSpace(result.Metric["ai_model"])
-		if modelName == "" {
-			modelName = "unknown"
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = gerror.Wrap(err, "query prometheus failed")
+			continue
 		}
-		values[usageMetricKey{
-			ConsumerName: consumerName,
-			ModelName:    modelName,
-		}] = parsePrometheusMetricValue(result.Value)
+
+		body, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			lastErr = gerror.Wrap(readErr, "read prometheus response failed")
+			continue
+		}
+		if resp.StatusCode >= http.StatusBadRequest {
+			lastErr = gerror.Newf(
+				"prometheus query failed: %s, url=%s, body=%s",
+				resp.Status,
+				requestURL,
+				truncateText(string(body), 512),
+			)
+			// Some deployments expose Prometheus under "/prometheus".
+			if resp.StatusCode == http.StatusNotFound && idx < len(requestURLs)-1 {
+				continue
+			}
+			return nil, lastErr
+		}
+
+		var parsed prometheusQueryResponse
+		if err = json.Unmarshal(body, &parsed); err != nil {
+			lastErr = gerror.Wrap(err, "decode prometheus response failed")
+			continue
+		}
+		if parsed.Status != "success" {
+			lastErr = gerror.Newf("prometheus query error: type=%s, error=%s", parsed.ErrorType, parsed.Error)
+			return nil, lastErr
+		}
+
+		values := make(map[usageMetricKey]int64, len(parsed.Data.Result))
+		for _, result := range parsed.Data.Result {
+			consumerName := strings.TrimSpace(result.Metric["ai_consumer"])
+			if consumerName == "" {
+				continue
+			}
+			modelName := strings.TrimSpace(result.Metric["ai_model"])
+			if modelName == "" {
+				modelName = "unknown"
+			}
+			values[usageMetricKey{
+				ConsumerName: consumerName,
+				ModelName:    modelName,
+			}] = parsePrometheusMetricValue(result.Value)
+		}
+		return values, nil
 	}
-	return values, nil
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, gerror.New("prometheus query failed")
+}
+
+func buildPrometheusQueryURLs(baseURL string, encodedQuery string) []string {
+	normalized := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if normalized == "" {
+		return []string{}
+	}
+
+	urls := []string{
+		normalized + "/api/v1/query?" + encodedQuery,
+	}
+	if !strings.HasSuffix(normalized, "/prometheus") {
+		urls = append(urls, normalized+"/prometheus/api/v1/query?"+encodedQuery)
+	}
+	return urls
 }
 
 func parsePrometheusMetricValue(values []any) int64 {

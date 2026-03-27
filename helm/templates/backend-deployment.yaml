@@ -108,6 +108,12 @@ spec:
               value: {{ .Values.backend.usageSyncEnabled | quote }}
             - name: PORTAL_USAGE_SYNC_SECONDS
               value: {{ .Values.backend.usageSyncSeconds | quote }}
+            - name: PORTAL_KEYAUTH_SYNC_ENABLED
+              value: {{ .Values.backend.keyAuthSyncEnabled | quote }}
+            - name: PORTAL_KEYAUTH_SYNC_SECONDS
+              value: {{ .Values.backend.keyAuthSyncSeconds | quote }}
+            - name: PORTAL_RECHARGE_FALLBACK_AVG_COST_PER_1K
+              value: {{ .Values.backend.rechargeFallbackAvgCostPer1K | quote }}
             - name: PORTAL_SHUTDOWN_GRACE_SECONDS
               value: {{ .Values.backend.shutdownGraceSeconds | quote }}
             - name: PORTAL_DISPLAY_NAME

@@ -102,7 +102,7 @@ const invoiceColumns: TableColumnsType<InvoiceRecord> = [
   {
     title: '金额',
     dataIndex: 'amount',
-    customRender: ({ value }) => `$${Number(value).toFixed(2)}`,
+    customRender: ({ value }) => `¥${Number(value).toFixed(2)}`,
   },
   { title: '状态', dataIndex: 'status' },
   { title: '申请时间', dataIndex: 'createdAt' },

@@ -16,10 +16,20 @@ rules:
       - get
       - list
       - watch
+      - update
+      - patch
   - apiGroups:
       - networking.higress.io
     resources:
       - mcpbridges
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - ingresses
     verbs:
       - get
       - list

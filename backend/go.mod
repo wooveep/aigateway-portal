@@ -3,8 +3,11 @@ module higress-portal-backend
 go 1.23.0
 
 require (
+	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/gogf/gf/contrib/drivers/mysql/v2 v2.10.0
 	github.com/gogf/gf/v2 v2.10.0
+	github.com/redis/go-redis/v9 v9.6.1
+	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.38.0
 	k8s.io/apimachinery v0.30.2
 	k8s.io/client-go v0.30.2
@@ -13,8 +16,10 @@ require (
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/BurntSushi/toml v1.5.0 // indirect
+	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/clbanning/mxj/v2 v2.7.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/emirpasic/gods/v2 v2.0.0-alpha // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
@@ -38,8 +43,10 @@ require (
 	github.com/olekukonko/errors v1.1.0 // indirect
 	github.com/olekukonko/ll v0.0.9 // indirect
 	github.com/olekukonko/tablewriter v1.1.0 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/otel v1.38.0 // indirect
 	go.opentelemetry.io/otel/metric v1.38.0 // indirect

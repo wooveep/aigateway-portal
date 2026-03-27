@@ -9,6 +9,7 @@ export interface AuthUser {
   displayName: string;
   email: string;
   department: string;
+  userLevel: 'normal' | 'plus' | 'pro' | 'ultra' | string;
   status: 'active' | 'disabled' | 'pending';
 }
 
@@ -63,7 +64,15 @@ export interface ApiKeyRecord {
   status: 'active' | 'disabled';
   createdAt: string;
   lastUsed: string;
+  expiresAt: string;
   totalCalls: number;
+  limitTotal: number;
+  limit5h: number;
+  limitDaily: number;
+  dailyResetMode: string;
+  dailyResetTime: string;
+  limitWeekly: number;
+  limitMonthly: number;
 }
 
 export interface OpenStats {

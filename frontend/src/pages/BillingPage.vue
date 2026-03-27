@@ -3,27 +3,31 @@
     <a-row :gutter="16">
       <a-col :xs="24" :md="8">
         <a-card>
-          <a-statistic title="当前余额" :value="Number(overview.balance || 0)" :precision="2" prefix="$" />
+          <a-statistic title="当前余额" :value="Number(overview.balance || 0)" :precision="2" prefix="¥" />
         </a-card>
       </a-col>
       <a-col :xs="24" :md="8">
         <a-card>
-          <a-statistic title="累计充值" :value="Number(overview.totalRecharge || 0)" :precision="2" prefix="$" />
+          <a-statistic title="累计充值" :value="Number(overview.totalRecharge || 0)" :precision="2" prefix="¥" />
         </a-card>
       </a-col>
       <a-col :xs="24" :md="8">
         <a-card>
-          <a-statistic title="累计消费" :value="Number(overview.totalConsumption || 0)" :precision="2" prefix="$" />
+          <a-statistic title="累计消费" :value="Number(overview.totalConsumption || 0)" :precision="2" prefix="¥" />
         </a-card>
       </a-col>
     </a-row>
 
     <a-card title="余额充值" class="portal-card">
-      <a-form layout="inline" @finish="submitRecharge">
-        <a-form-item label="金额">
-          <a-input-number v-model:value="rechargeForm.amount" :min="1" :precision="2" placeholder="请输入金额" />
+      <a-form ref="rechargeFormRef" :model="rechargeForm" layout="inline">
+        <a-form-item
+          label="金额"
+          name="amount"
+          :rules="rechargeAmountRules"
+        >
+          <a-input-number v-model:value="rechargeForm.amount" :min="0" :precision="2" placeholder="请输入金额" />
         </a-form-item>
-        <a-form-item label="渠道">
+        <a-form-item label="渠道" name="channel" :rules="rechargeChannelRules">
           <a-select v-model:value="rechargeForm.channel" placeholder="请选择渠道" style="width: 160px">
             <a-select-option value="alipay">支付宝</a-select-option>
             <a-select-option value="wechat">微信支付</a-select-option>
@@ -31,17 +35,29 @@
           </a-select>
         </a-form-item>
         <a-form-item>
-          <a-button type="primary" html-type="submit" :loading="loading">充值</a-button>
+          <a-button type="primary" :loading="rechargeSubmitting" @click="submitRecharge">充值</a-button>
         </a-form-item>
       </a-form>
     </a-card>
 
     <a-card title="消费记录" class="portal-card">
-      <a-table :columns="consumptionColumns" :data-source="consumptions" :pagination="{ pageSize: 5 }" row-key="id" />
+      <a-table
+        :columns="consumptionColumns"
+        :data-source="consumptions"
+        :pagination="{ pageSize: 5 }"
+        :loading="pageLoading"
+        row-key="id"
+      />
     </a-card>
 
     <a-card title="充值记录" class="portal-card">
-      <a-table :columns="rechargeColumns" :data-source="recharges" :pagination="{ pageSize: 5 }" row-key="id" />
+      <a-table
+        :columns="rechargeColumns"
+        :data-source="recharges"
+        :pagination="{ pageSize: 5 }"
+        :loading="pageLoading"
+        row-key="id"
+      />
     </a-card>
   </div>
 </template>
@@ -53,7 +69,9 @@ import { message, Tag } from 'ant-design-vue';
 import type { TableColumnsType } from 'ant-design-vue';
 import { h, onMounted, reactive, ref } from 'vue';
 
-const loading = ref(false);
+const pageLoading = ref(false);
+const rechargeSubmitting = ref(false);
+const rechargeFormRef = ref();
 const overview = reactive<BillingOverview>({
   balance: '0',
   totalRecharge: '0',
@@ -67,6 +85,28 @@ const rechargeForm = reactive({
   channel: 'alipay',
 });
 
+const rechargeAmountRules = [
+  { required: true, message: '请输入充值金额' },
+  {
+    validator: (_rule: unknown, value: number | null | undefined) => {
+      if (value === null || value === undefined || Number(value) >= 0) {
+        return Promise.resolve();
+      }
+      return Promise.reject(new Error('充值金额不能小于 0'));
+    },
+  },
+];
+
+const rechargeChannelRules = [{ required: true, message: '请选择充值渠道' }];
+
+const getErrorMessage = (error: unknown, fallback: string) => {
+  const maybeError = error as {
+    response?: { data?: { message?: string; error?: string } };
+    message?: string;
+  };
+  return maybeError?.response?.data?.message || maybeError?.response?.data?.error || maybeError?.message || fallback;
+};
+
 const consumptionColumns: TableColumnsType<ConsumptionRecord> = [
   { title: '记录 ID', dataIndex: 'id' },
   { title: '模型', dataIndex: 'model' },
@@ -74,7 +114,7 @@ const consumptionColumns: TableColumnsType<ConsumptionRecord> = [
   {
     title: '费用',
     dataIndex: 'cost',
-    customRender: ({ value }) => `$${Number(value).toFixed(2)}`,
+    customRender: ({ value }) => `¥${Number(value).toFixed(2)}`,
   },
   { title: '时间', dataIndex: 'createdAt' },
 ];
@@ -84,7 +124,7 @@ const rechargeColumns: TableColumnsType<RechargeRecord> = [
   {
     title: '充值金额',
     dataIndex: 'amount',
-    customRender: ({ value }) => `$${Number(value).toFixed(2)}`,
+    customRender: ({ value }) => `¥${Number(value).toFixed(2)}`,
   },
   {
     title: '渠道',
@@ -111,7 +151,7 @@ const rechargeColumns: TableColumnsType<RechargeRecord> = [
 ];
 
 const loadData = async () => {
-  loading.value = true;
+  pageLoading.value = true;
   try {
     const [overviewRes, consumptionRes, rechargeRes] = await Promise.all([
       fetchBillingOverview(),
@@ -123,24 +163,29 @@ const loadData = async () => {
     overview.totalConsumption = overviewRes.totalConsumption;
     consumptions.value = consumptionRes;
     recharges.value = rechargeRes;
-  } catch {
-    message.error('账单数据加载失败');
+  } catch (error: unknown) {
+    message.error(getErrorMessage(error, '账单数据加载失败'));
   } finally {
-    loading.value = false;
+    pageLoading.value = false;
   }
 };
 
 const submitRecharge = async () => {
-  if (!rechargeForm.amount || rechargeForm.amount <= 0) {
-    message.warning('请输入正确金额');
+  try {
+    await rechargeFormRef.value?.validateFields();
+  } catch {
     return;
   }
+  rechargeSubmitting.value = true;
+  message.loading({ key: 'recharge-submit', content: '充值处理中...' });
   try {
     await createRecharge({ amount: rechargeForm.amount, channel: rechargeForm.channel });
-    message.success('充值成功');
+    message.success({ key: 'recharge-submit', content: '充值成功' });
     await loadData();
-  } catch {
-    message.error('充值失败');
+  } catch (error: unknown) {
+    message.error({ key: 'recharge-submit', content: getErrorMessage(error, '充值失败') });
+  } finally {
+    rechargeSubmitting.value = false;
   }
 };
 

@@ -18,6 +18,7 @@
         <div class="header-title">企业 AI 开放平台</div>
         <div class="header-user">
           <a-tag color="blue">{{ authState.user?.displayName || authState.user?.consumerName }}</a-tag>
+          <a-tag color="geekblue">等级：{{ formatUserLevel(authState.user?.userLevel) }}</a-tag>
           <a-button type="link" @click="onLogout">退出登录</a-button>
         </div>
       </a-layout-header>
@@ -68,6 +69,14 @@ const menuItems: MenuProps['items'] = [
 
 const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
   router.push(String(key));
+};
+
+const formatUserLevel = (value?: string) => {
+  const level = String(value || '').toLowerCase();
+  if (level === 'ultra') return 'Ultra';
+  if (level === 'pro') return 'Pro';
+  if (level === 'plus') return 'Plus';
+  return 'Normal';
 };
 
 const onLogout = async () => {

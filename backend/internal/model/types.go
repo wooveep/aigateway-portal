@@ -11,6 +11,7 @@ type PortalUserRow struct {
 	DisplayName  string     `orm:"display_name"`
 	Email        string     `orm:"email"`
 	Department   string     `orm:"department"`
+	UserLevel    string     `orm:"user_level"`
 	Status       string     `orm:"status"`
 	Source       string     `orm:"source"`
 	PasswordHash string     `orm:"password_hash"`
@@ -18,14 +19,23 @@ type PortalUserRow struct {
 }
 
 type APIKeyRow struct {
-	KeyID      string     `orm:"key_id"`
-	Name       string     `orm:"name"`
-	RawKey     string     `orm:"raw_key"`
-	Masked     string     `orm:"key_masked"`
-	Status     string     `orm:"status"`
-	TotalCalls int64      `orm:"total_calls"`
-	LastUsedAt *time.Time `orm:"last_used_at"`
-	CreatedAt  time.Time  `orm:"created_at"`
+	KeyID                 string     `orm:"key_id"`
+	Name                  string     `orm:"name"`
+	RawKey                string     `orm:"raw_key"`
+	Masked                string     `orm:"key_masked"`
+	Status                string     `orm:"status"`
+	TotalCalls            int64      `orm:"total_calls"`
+	LastUsedAt            *time.Time `orm:"last_used_at"`
+	ExpiresAt             *time.Time `orm:"expires_at"`
+	DeletedAt             *time.Time `orm:"deleted_at"`
+	LimitTotalMicroYuan   int64      `orm:"limit_total_micro_yuan"`
+	Limit5hMicroYuan      int64      `orm:"limit_5h_micro_yuan"`
+	LimitDailyMicroYuan   int64      `orm:"limit_daily_micro_yuan"`
+	DailyResetMode        string     `orm:"daily_reset_mode"`
+	DailyResetTime        string     `orm:"daily_reset_time"`
+	LimitWeeklyMicroYuan  int64      `orm:"limit_weekly_micro_yuan"`
+	LimitMonthlyMicroYuan int64      `orm:"limit_monthly_micro_yuan"`
+	CreatedAt             time.Time  `orm:"created_at"`
 }
 
 type AuthUser struct {
@@ -33,6 +43,7 @@ type AuthUser struct {
 	DisplayName  string `json:"displayName"`
 	Email        string `json:"email"`
 	Department   string `json:"department"`
+	UserLevel    string `json:"userLevel"`
 	Status       string `json:"status"`
 }
 
@@ -98,13 +109,21 @@ type ModelLimits struct {
 }
 
 type APIKeyRecord struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Key        string `json:"key"`
-	Status     string `json:"status"`
-	CreatedAt  string `json:"createdAt"`
-	LastUsed   string `json:"lastUsed"`
-	TotalCalls int64  `json:"totalCalls"`
+	ID             string  `json:"id"`
+	Name           string  `json:"name"`
+	Key            string  `json:"key"`
+	Status         string  `json:"status"`
+	CreatedAt      string  `json:"createdAt"`
+	LastUsed       string  `json:"lastUsed"`
+	ExpiresAt      string  `json:"expiresAt"`
+	TotalCalls     int64   `json:"totalCalls"`
+	LimitTotal     float64 `json:"limitTotal"`
+	Limit5h        float64 `json:"limit5h"`
+	LimitDaily     float64 `json:"limitDaily"`
+	DailyResetMode string  `json:"dailyResetMode"`
+	DailyResetTime string  `json:"dailyResetTime"`
+	LimitWeekly    float64 `json:"limitWeekly"`
+	LimitMonthly   float64 `json:"limitMonthly"`
 }
 
 type OpenStats struct {
@@ -157,11 +176,31 @@ type LoginRequest struct {
 }
 
 type CreateAPIKeyRequest struct {
-	Name string `json:"name"`
+	Name           string  `json:"name"`
+	ExpiresAt      string  `json:"expiresAt"`
+	LimitTotal     float64 `json:"limitTotal"`
+	Limit5h        float64 `json:"limit5h"`
+	LimitDaily     float64 `json:"limitDaily"`
+	DailyResetMode string  `json:"dailyResetMode"`
+	DailyResetTime string  `json:"dailyResetTime"`
+	LimitWeekly    float64 `json:"limitWeekly"`
+	LimitMonthly   float64 `json:"limitMonthly"`
 }
 
 type UpdateAPIKeyStatusRequest struct {
 	Status string `json:"status"`
+}
+
+type UpdateAPIKeyRequest struct {
+	Name           string  `json:"name"`
+	ExpiresAt      string  `json:"expiresAt"`
+	LimitTotal     float64 `json:"limitTotal"`
+	Limit5h        float64 `json:"limit5h"`
+	LimitDaily     float64 `json:"limitDaily"`
+	DailyResetMode string  `json:"dailyResetMode"`
+	DailyResetTime string  `json:"dailyResetTime"`
+	LimitWeekly    float64 `json:"limitWeekly"`
+	LimitMonthly   float64 `json:"limitMonthly"`
 }
 
 type CreateRechargeRequest struct {
