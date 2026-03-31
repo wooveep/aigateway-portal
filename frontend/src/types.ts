@@ -13,6 +13,11 @@ export interface AuthUser {
   status: 'active' | 'disabled' | 'pending';
 }
 
+export interface ChangePasswordPayload {
+  oldPassword: string;
+  newPassword: string;
+}
+
 export interface RechargeRecord {
   id: string;
   amount: number;

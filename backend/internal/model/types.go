@@ -175,6 +175,11 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
+type ChangePasswordRequest struct {
+	OldPassword string `json:"oldPassword"`
+	NewPassword string `json:"newPassword"`
+}
+
 type CreateAPIKeyRequest struct {
 	Name           string  `json:"name"`
 	ExpiresAt      string  `json:"expiresAt"`

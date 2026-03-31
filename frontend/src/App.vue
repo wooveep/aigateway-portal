@@ -19,6 +19,9 @@
         <div class="header-user">
           <a-tag color="blue">{{ authState.user?.displayName || authState.user?.consumerName }}</a-tag>
           <a-tag color="geekblue">等级：{{ formatUserLevel(authState.user?.userLevel) }}</a-tag>
+          <a-button type="link" :icon="h(LockOutlined)" :disabled="isChangePasswordPage" @click="goChangePassword">
+            修改密码
+          </a-button>
           <a-button type="link" @click="onLogout">退出登录</a-button>
         </div>
       </a-layout-header>
@@ -30,7 +33,7 @@
 </template>
 
 <script setup lang="ts">
-import { AppstoreOutlined, FileTextOutlined, KeyOutlined, WalletOutlined } from '@ant-design/icons-vue';
+import { AppstoreOutlined, FileTextOutlined, KeyOutlined, LockOutlined, WalletOutlined } from '@ant-design/icons-vue';
 import type { MenuProps } from 'ant-design-vue';
 import { message } from 'ant-design-vue';
 import { computed, h } from 'vue';
@@ -43,6 +46,7 @@ const router = useRouter();
 
 const isPublicPage = computed(() => route.path === '/login' || route.path === '/register');
 const selectedKeys = computed(() => [route.path]);
+const isChangePasswordPage = computed(() => route.path === '/change-password');
 
 const menuItems: MenuProps['items'] = [
   {
@@ -69,6 +73,10 @@ const menuItems: MenuProps['items'] = [
 
 const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
   router.push(String(key));
+};
+
+const goChangePassword = () => {
+  router.push('/change-password');
 };
 
 const formatUserLevel = (value?: string) => {

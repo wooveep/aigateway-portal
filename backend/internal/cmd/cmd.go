@@ -55,6 +55,7 @@ func mainFunc(ctx context.Context, parser *gcmd.Parser) (err error) {
 				auth.Group("/", func(authed *ghttp.RouterGroup) {
 					authed.Middleware(authMw.Handler)
 					authed.GET("/me", ctrl.Me)
+					authed.POST("/change-password", ctrl.ChangePassword)
 				})
 			})
 

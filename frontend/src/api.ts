@@ -3,6 +3,7 @@ import type {
   ApiKeyRecord,
   AuthUser,
   BillingOverview,
+  ChangePasswordPayload,
   ConsumptionRecord,
   CostDetailRecord,
   InvoiceProfile,
@@ -42,6 +43,11 @@ export async function logout() {
 
 export async function fetchMe() {
   const { data } = await client.get<AuthUser>('/auth/me');
+  return data;
+}
+
+export async function changePassword(payload: ChangePasswordPayload) {
+  const { data } = await client.post<{ success: boolean }>('/auth/change-password', payload);
   return data;
 }
 

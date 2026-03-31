@@ -113,6 +113,21 @@ func (c *Controller) Me(r *ghttp.Request) {
 	httpx.WriteJSON(r, http.StatusOK, authUserFromRequest(r))
 }
 
+func (c *Controller) ChangePassword(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	var req model.ChangePasswordRequest
+	if err := r.Parse(&req); err != nil {
+		httpx.WriteJSON(r, http.StatusBadRequest, g.Map{"message": "invalid request body"})
+		return
+	}
+	if err := c.svc.ChangePassword(r.Context(), user.ConsumerName, req); err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	clearSessionCookie(r, c.svc)
+	httpx.WriteJSON(r, http.StatusOK, g.Map{"success": true})
+}
+
 func (c *Controller) BillingOverview(r *ghttp.Request) {
 	user := authUserFromRequest(r)
 	resp, err := c.svc.GetBillingOverview(r.Context(), user.ConsumerName)

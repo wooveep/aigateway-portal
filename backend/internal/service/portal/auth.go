@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/os/gtime"
 	"golang.org/x/crypto/bcrypt"
@@ -108,6 +109,54 @@ func (s *Service) Login(ctx context.Context, req model.LoginRequest) (model.Auth
 		UserLevel:    normalizeUserLevel(user.UserLevel),
 		Status:       user.Status,
 	}, nil
+}
+
+func (s *Service) ChangePassword(ctx context.Context, consumerName string, req model.ChangePasswordRequest) error {
+	normalizedConsumer := model.NormalizeUsername(consumerName)
+	if normalizedConsumer == "" {
+		return apperr.New(401, "unauthorized")
+	}
+	if req.OldPassword == "" || req.NewPassword == "" {
+		return apperr.New(400, "oldPassword and newPassword are required")
+	}
+	if len(req.NewPassword) < 8 {
+		return apperr.New(400, "new password must be at least 8 characters")
+	}
+	if req.OldPassword == req.NewPassword {
+		return apperr.New(400, "new password must be different from current password")
+	}
+
+	user, err := s.getUserByName(ctx, normalizedConsumer)
+	if err != nil {
+		return err
+	}
+	if user == nil {
+		return apperr.New(404, "user not found")
+	}
+	if !comparePassword(user.PasswordHash, req.OldPassword) {
+		return apperr.New(400, "current password is incorrect")
+	}
+
+	passwordHash, err := hashPassword(req.NewPassword)
+	if err != nil {
+		return gerror.Wrap(err, "encrypt password failed")
+	}
+
+	if err = s.db.Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
+		if _, txErr := tx.Model("portal_user").Ctx(ctx).Where("consumer_name", normalizedConsumer).Data(do.PortalUser{
+			PasswordHash: passwordHash,
+		}).Update(); txErr != nil {
+			return gerror.Wrap(txErr, "update user password failed")
+		}
+		if _, txErr := tx.Model("portal_session").Ctx(ctx).Where("consumer_name", normalizedConsumer).Delete(); txErr != nil {
+			return gerror.Wrap(txErr, "clear user sessions failed")
+		}
+		return nil
+	}); err != nil {
+		return gerror.Wrap(err, "change password failed")
+	}
+
+	return nil
 }
 
 func (s *Service) CreateSession(ctx context.Context, consumerName string) (string, error) {
