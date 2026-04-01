@@ -27,9 +27,10 @@ func (s *Service) Register(ctx context.Context, req model.RegisterRequest) (mode
 		displayName = username
 	}
 
+	now := model.NowInAppLocation()
 	inviteRecord, err := s.db.GetOne(ctx, `
 		SELECT invite_code FROM portal_invite_code
-		WHERE invite_code = ? AND status = 'active' AND expires_at > NOW()`, strings.TrimSpace(req.InviteCode))
+		WHERE invite_code = ? AND status = 'active' AND expires_at > ?`, strings.TrimSpace(req.InviteCode), now)
 	if err != nil {
 		return model.RegisterResult{}, gerror.Wrap(err, "query invite code failed")
 	}
@@ -192,7 +193,7 @@ func (s *Service) AuthenticateSession(ctx context.Context, token string) (model.
 		SELECT u.consumer_name, u.display_name, u.email, u.department, u.user_level, u.status, u.source
 		FROM portal_session s
 		JOIN portal_user u ON u.consumer_name = s.consumer_name
-		WHERE s.session_token = ? AND s.expires_at > NOW()`, token)
+		WHERE s.session_token = ? AND s.expires_at > ?`, token, model.NowInAppLocation())
 	if err != nil {
 		return model.AuthUser{}, gerror.Wrap(err, "query session failed")
 	}

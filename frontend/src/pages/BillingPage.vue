@@ -65,6 +65,7 @@
 <script setup lang="ts">
 import { createRecharge, fetchBillingOverview, fetchConsumptions, fetchRecharges } from '../api';
 import type { BillingOverview, ConsumptionRecord, RechargeRecord } from '../types';
+import { formatDateTimeDisplay } from '../utils/time';
 import { message, Tag } from 'ant-design-vue';
 import type { TableColumnsType } from 'ant-design-vue';
 import { h, onMounted, reactive, ref } from 'vue';
@@ -116,7 +117,11 @@ const consumptionColumns: TableColumnsType<ConsumptionRecord> = [
     dataIndex: 'cost',
     customRender: ({ value }) => `¥${Number(value).toFixed(2)}`,
   },
-  { title: '时间', dataIndex: 'createdAt' },
+  {
+    title: '时间',
+    dataIndex: 'createdAt',
+    customRender: ({ value }) => formatDateTimeDisplay(String(value ?? '')),
+  },
 ];
 
 const rechargeColumns: TableColumnsType<RechargeRecord> = [
@@ -147,7 +152,11 @@ const rechargeColumns: TableColumnsType<RechargeRecord> = [
       return h(Tag, { color }, () => text);
     },
   },
-  { title: '时间', dataIndex: 'createdAt' },
+  {
+    title: '时间',
+    dataIndex: 'createdAt',
+    customRender: ({ value }) => formatDateTimeDisplay(String(value ?? '')),
+  },
 ];
 
 const loadData = async () => {

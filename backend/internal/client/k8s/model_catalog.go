@@ -43,7 +43,7 @@ var (
 const (
 	defaultNamespace  = "aigateway-system"
 	defaultMcpBridge  = "default"
-	defaultCurrency   = "USD"
+	defaultCurrency   = "CNY"
 	aiProxyPluginName = "ai-proxy"
 )
 
@@ -53,9 +53,24 @@ type ProviderCapabilities struct {
 }
 
 type ProviderPricing struct {
-	Currency    string
-	InputPer1K  float64
-	OutputPer1K float64
+	Currency                                   string
+	InputPer1K                                 float64
+	OutputPer1K                                float64
+	InputCostPerToken                          float64
+	OutputCostPerToken                         float64
+	InputCostPerRequest                        float64
+	CacheCreationInputTokenCost                float64
+	CacheCreationInputTokenCostAbove1hr        float64
+	CacheReadInputTokenCost                    float64
+	InputCostPerTokenAbove200kTokens           float64
+	OutputCostPerTokenAbove200kTokens          float64
+	CacheCreationInputTokenCostAbove200kTokens float64
+	CacheReadInputTokenCostAbove200kTokens     float64
+	OutputCostPerImage                         float64
+	OutputCostPerImageToken                    float64
+	InputCostPerImage                          float64
+	InputCostPerImageToken                     float64
+	SupportsPromptCaching                      bool
 }
 
 type ProviderLimits struct {
@@ -480,9 +495,62 @@ func parsePortalModelMeta(provider map[string]any) ProviderModelMeta {
 		}
 		if v, ok := asFloat64(pricingMap["inputPer1K"]); ok {
 			meta.Pricing.InputPer1K = v
+			if meta.Pricing.InputCostPerToken == 0 {
+				meta.Pricing.InputCostPerToken = v / 1000
+			}
 		}
 		if v, ok := asFloat64(pricingMap["outputPer1K"]); ok {
 			meta.Pricing.OutputPer1K = v
+			if meta.Pricing.OutputCostPerToken == 0 {
+				meta.Pricing.OutputCostPerToken = v / 1000
+			}
+		}
+		if v, ok := asFloat64(pricingMap["input_cost_per_token"]); ok {
+			meta.Pricing.InputCostPerToken = v
+			meta.Pricing.InputPer1K = v * 1000
+		}
+		if v, ok := asFloat64(pricingMap["output_cost_per_token"]); ok {
+			meta.Pricing.OutputCostPerToken = v
+			meta.Pricing.OutputPer1K = v * 1000
+		}
+		if v, ok := asFloat64(pricingMap["input_cost_per_request"]); ok {
+			meta.Pricing.InputCostPerRequest = v
+		}
+		if v, ok := asFloat64(pricingMap["cache_creation_input_token_cost"]); ok {
+			meta.Pricing.CacheCreationInputTokenCost = v
+		}
+		if v, ok := asFloat64(pricingMap["cache_creation_input_token_cost_above_1hr"]); ok {
+			meta.Pricing.CacheCreationInputTokenCostAbove1hr = v
+		}
+		if v, ok := asFloat64(pricingMap["cache_read_input_token_cost"]); ok {
+			meta.Pricing.CacheReadInputTokenCost = v
+		}
+		if v, ok := asFloat64(pricingMap["input_cost_per_token_above_200k_tokens"]); ok {
+			meta.Pricing.InputCostPerTokenAbove200kTokens = v
+		}
+		if v, ok := asFloat64(pricingMap["output_cost_per_token_above_200k_tokens"]); ok {
+			meta.Pricing.OutputCostPerTokenAbove200kTokens = v
+		}
+		if v, ok := asFloat64(pricingMap["cache_creation_input_token_cost_above_200k_tokens"]); ok {
+			meta.Pricing.CacheCreationInputTokenCostAbove200kTokens = v
+		}
+		if v, ok := asFloat64(pricingMap["cache_read_input_token_cost_above_200k_tokens"]); ok {
+			meta.Pricing.CacheReadInputTokenCostAbove200kTokens = v
+		}
+		if v, ok := asFloat64(pricingMap["output_cost_per_image"]); ok {
+			meta.Pricing.OutputCostPerImage = v
+		}
+		if v, ok := asFloat64(pricingMap["output_cost_per_image_token"]); ok {
+			meta.Pricing.OutputCostPerImageToken = v
+		}
+		if v, ok := asFloat64(pricingMap["input_cost_per_image"]); ok {
+			meta.Pricing.InputCostPerImage = v
+		}
+		if v, ok := asFloat64(pricingMap["input_cost_per_image_token"]); ok {
+			meta.Pricing.InputCostPerImageToken = v
+		}
+		if v, ok := pricingMap["supports_prompt_caching"].(bool); ok {
+			meta.Pricing.SupportsPromptCaching = v
 		}
 	}
 	if limitMap, ok := metaMap["limits"].(map[string]any); ok {

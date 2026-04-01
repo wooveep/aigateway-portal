@@ -45,8 +45,8 @@ func (s *Service) syncUsageOnce(ctx context.Context) error {
 		return nil
 	}
 
-	now := time.Now()
-	from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	now := model.NowInAppLocation()
+	from := model.StartOfAppDay(now)
 	stats, err := s.fetchUsageStatsFromCore(ctx, from, now)
 	if err != nil {
 		return gerror.Wrap(err, "fetch usage stats from core failed")
@@ -95,9 +95,17 @@ func (s *Service) loadUsageStatsFromLedger(ctx context.Context, from time.Time, 
 		SELECT
 			consumer_name,
 			model_id,
-			COUNT(1) AS request_count,
+			COALESCE(SUM(request_count), 0) AS request_count,
 			COALESCE(SUM(input_tokens), 0) AS input_tokens,
-			COALESCE(SUM(output_tokens), 0) AS output_tokens
+			COALESCE(SUM(output_tokens), 0) AS output_tokens,
+			COALESCE(SUM(cache_creation_input_tokens), 0) AS cache_creation_input_tokens,
+			COALESCE(SUM(cache_creation_5m_input_tokens), 0) AS cache_creation_5m_input_tokens,
+			COALESCE(SUM(cache_creation_1h_input_tokens), 0) AS cache_creation_1h_input_tokens,
+			COALESCE(SUM(cache_read_input_tokens), 0) AS cache_read_input_tokens,
+			COALESCE(SUM(input_image_tokens), 0) AS input_image_tokens,
+			COALESCE(SUM(output_image_tokens), 0) AS output_image_tokens,
+			COALESCE(SUM(input_image_count), 0) AS input_image_count,
+			COALESCE(SUM(output_image_count), 0) AS output_image_count
 		FROM billing_usage_event
 		WHERE request_status = 'success'
 		  AND usage_status = 'parsed'
@@ -111,13 +119,26 @@ func (s *Service) loadUsageStatsFromLedger(ctx context.Context, from time.Time, 
 	for _, record := range records {
 		input := record["input_tokens"].Int64()
 		output := record["output_tokens"].Int64()
+		cacheCreation := maxInt64(record["cache_creation_input_tokens"].Int64(),
+			record["cache_creation_5m_input_tokens"].Int64()+record["cache_creation_1h_input_tokens"].Int64())
+		cacheRead := record["cache_read_input_tokens"].Int64()
+		inputImage := record["input_image_tokens"].Int64()
+		outputImage := record["output_image_tokens"].Int64()
 		items = append(items, model.ConsumerUsageStat{
-			ConsumerName: model.NormalizeUsername(record["consumer_name"].String()),
-			ModelName:    strings.TrimSpace(record["model_id"].String()),
-			RequestCount: record["request_count"].Int64(),
-			InputTokens:  input,
-			OutputTokens: output,
-			TotalTokens:  input + output,
+			ConsumerName:               model.NormalizeUsername(record["consumer_name"].String()),
+			ModelName:                  strings.TrimSpace(record["model_id"].String()),
+			RequestCount:               record["request_count"].Int64(),
+			InputTokens:                input,
+			OutputTokens:               output,
+			TotalTokens:                input + output + cacheCreation + cacheRead + inputImage + outputImage,
+			CacheCreationInputTokens:   record["cache_creation_input_tokens"].Int64(),
+			CacheCreation5mInputTokens: record["cache_creation_5m_input_tokens"].Int64(),
+			CacheCreation1hInputTokens: record["cache_creation_1h_input_tokens"].Int64(),
+			CacheReadInputTokens:       cacheRead,
+			InputImageTokens:           inputImage,
+			OutputImageTokens:          outputImage,
+			InputImageCount:            record["input_image_count"].Int64(),
+			OutputImageCount:           record["output_image_count"].Int64(),
 		})
 	}
 	return items, nil
@@ -153,13 +174,21 @@ func (s *Service) logUsageReconcileDiff(ctx context.Context, metrics []model.Con
 		}
 		if metricItem.RequestCount != ledgerItem.RequestCount ||
 			metricItem.InputTokens != ledgerItem.InputTokens ||
-			metricItem.OutputTokens != ledgerItem.OutputTokens {
+			metricItem.OutputTokens != ledgerItem.OutputTokens ||
+			metricItem.CacheCreationInputTokens != ledgerItem.CacheCreationInputTokens ||
+			metricItem.CacheReadInputTokens != ledgerItem.CacheReadInputTokens ||
+			metricItem.InputImageTokens != ledgerItem.InputImageTokens ||
+			metricItem.OutputImageTokens != ledgerItem.OutputImageTokens {
 			diffCount++
 			s.logf(ctx,
-				"usage reconcile mismatch: consumer=%s model=%s metric(calls=%d,input=%d,output=%d) ledger(calls=%d,input=%d,output=%d)",
+				"usage reconcile mismatch: consumer=%s model=%s metric(calls=%d,input=%d,output=%d,cache_create=%d,cache_read=%d,image_in=%d,image_out=%d) ledger(calls=%d,input=%d,output=%d,cache_create=%d,cache_read=%d,image_in=%d,image_out=%d)",
 				key.consumer, key.model,
 				metricItem.RequestCount, metricItem.InputTokens, metricItem.OutputTokens,
+				metricItem.CacheCreationInputTokens, metricItem.CacheReadInputTokens,
+				metricItem.InputImageTokens, metricItem.OutputImageTokens,
 				ledgerItem.RequestCount, ledgerItem.InputTokens, ledgerItem.OutputTokens,
+				ledgerItem.CacheCreationInputTokens, ledgerItem.CacheReadInputTokens,
+				ledgerItem.InputImageTokens, ledgerItem.OutputImageTokens,
 			)
 		}
 	}

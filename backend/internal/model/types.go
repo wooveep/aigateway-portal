@@ -6,6 +6,10 @@ import (
 	"time"
 )
 
+const AppTimeZone = "UTC"
+
+var appLocation = time.UTC
+
 type PortalUserRow struct {
 	ConsumerName string     `orm:"consumer_name"`
 	DisplayName  string     `orm:"display_name"`
@@ -97,9 +101,24 @@ type ModelCapabilities struct {
 }
 
 type ModelPricing struct {
-	Currency    string  `json:"currency,omitempty"`
-	InputPer1K  float64 `json:"inputPer1K,omitempty"`
-	OutputPer1K float64 `json:"outputPer1K,omitempty"`
+	Currency                                   string  `json:"currency,omitempty"`
+	InputPer1K                                 float64 `json:"inputPer1K,omitempty"`
+	OutputPer1K                                float64 `json:"outputPer1K,omitempty"`
+	InputCostPerToken                          float64 `json:"input_cost_per_token,omitempty"`
+	OutputCostPerToken                         float64 `json:"output_cost_per_token,omitempty"`
+	InputCostPerRequest                        float64 `json:"input_cost_per_request,omitempty"`
+	CacheCreationInputTokenCost                float64 `json:"cache_creation_input_token_cost,omitempty"`
+	CacheCreationInputTokenCostAbove1hr        float64 `json:"cache_creation_input_token_cost_above_1hr,omitempty"`
+	CacheReadInputTokenCost                    float64 `json:"cache_read_input_token_cost,omitempty"`
+	InputCostPerTokenAbove200kTokens           float64 `json:"input_cost_per_token_above_200k_tokens,omitempty"`
+	OutputCostPerTokenAbove200kTokens          float64 `json:"output_cost_per_token_above_200k_tokens,omitempty"`
+	CacheCreationInputTokenCostAbove200kTokens float64 `json:"cache_creation_input_token_cost_above_200k_tokens,omitempty"`
+	CacheReadInputTokenCostAbove200kTokens     float64 `json:"cache_read_input_token_cost_above_200k_tokens,omitempty"`
+	OutputCostPerImage                         float64 `json:"output_cost_per_image,omitempty"`
+	OutputCostPerImageToken                    float64 `json:"output_cost_per_image_token,omitempty"`
+	InputCostPerImage                          float64 `json:"input_cost_per_image,omitempty"`
+	InputCostPerImageToken                     float64 `json:"input_cost_per_image_token,omitempty"`
+	SupportsPromptCaching                      bool    `json:"supports_prompt_caching,omitempty"`
 }
 
 type ModelLimits struct {
@@ -219,16 +238,76 @@ type CreateInvoiceRequest struct {
 }
 
 type ConsumerUsageStat struct {
-	ConsumerName string `json:"consumerName"`
-	ModelName    string `json:"modelName"`
-	RequestCount int64  `json:"requestCount"`
-	InputTokens  int64  `json:"inputTokens"`
-	OutputTokens int64  `json:"outputTokens"`
-	TotalTokens  int64  `json:"totalTokens"`
+	ConsumerName               string `json:"consumerName"`
+	ModelName                  string `json:"modelName"`
+	RequestCount               int64  `json:"requestCount"`
+	InputTokens                int64  `json:"inputTokens"`
+	OutputTokens               int64  `json:"outputTokens"`
+	TotalTokens                int64  `json:"totalTokens"`
+	CacheCreationInputTokens   int64  `json:"cacheCreationInputTokens"`
+	CacheCreation5mInputTokens int64  `json:"cacheCreation5mInputTokens"`
+	CacheCreation1hInputTokens int64  `json:"cacheCreation1hInputTokens"`
+	CacheReadInputTokens       int64  `json:"cacheReadInputTokens"`
+	InputImageTokens           int64  `json:"inputImageTokens"`
+	OutputImageTokens          int64  `json:"outputImageTokens"`
+	InputImageCount            int64  `json:"inputImageCount"`
+	OutputImageCount           int64  `json:"outputImageCount"`
 }
 
 func NowText(t time.Time) string {
-	return t.Format("2006-01-02 15:04:05")
+	return ToAppTime(t).Format(time.RFC3339Nano)
+}
+
+func DayText(t time.Time) string {
+	return ToAppTime(t).Format("2006-01-02")
+}
+
+func AppLocation() *time.Location {
+	return appLocation
+}
+
+func ToAppTime(t time.Time) time.Time {
+	if t.IsZero() {
+		return t
+	}
+	return t.In(appLocation)
+}
+
+func NowInAppLocation() time.Time {
+	return time.Now().UTC()
+}
+
+func StartOfAppDay(t time.Time) time.Time {
+	local := ToAppTime(t)
+	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, appLocation)
+}
+
+func ParseDateTime(value string) (*time.Time, error) {
+	raw := strings.TrimSpace(value)
+	if raw == "" {
+		return nil, nil
+	}
+	absoluteLayouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+	}
+	for _, layout := range absoluteLayouts {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			return &parsed, nil
+		}
+	}
+	localLayouts := []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04",
+		"2006-01-02",
+	}
+	for _, layout := range localLayouts {
+		if parsed, err := time.ParseInLocation(layout, raw, appLocation); err == nil {
+			return &parsed, nil
+		}
+	}
+	return nil, fmt.Errorf("unsupported datetime format")
 }
 
 func MaskKey(raw string) string {

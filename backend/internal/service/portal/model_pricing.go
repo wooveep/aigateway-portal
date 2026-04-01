@@ -9,18 +9,20 @@ import (
 
 	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/errors/gerror"
+
+	clientK8s "higress-portal-backend/internal/client/k8s"
+	"higress-portal-backend/internal/model"
 )
 
 type activeModelPrice struct {
-	ModelID     string
-	Name        string
-	Vendor      string
-	Capability  string
-	InputPer1K  float64
-	OutputPer1K float64
-	Endpoint    string
-	SDK         string
-	Summary     string
+	ModelID    string
+	Name       string
+	Vendor     string
+	Capability string
+	Pricing    model.ModelPricing
+	Endpoint   string
+	SDK        string
+	Summary    string
 }
 
 func (s *Service) loadActiveModelPrices(ctx context.Context) ([]activeModelPrice, error) {
@@ -88,15 +90,14 @@ func (s *Service) loadActiveModelPricesFromGateway(ctx context.Context) ([]activ
 		}
 
 		entries = append(entries, activeModelPrice{
-			ModelID:     modelID,
-			Name:        modelID,
-			Vendor:      vendor,
-			Capability:  capability,
-			InputPer1K:  item.Meta.Pricing.InputPer1K,
-			OutputPer1K: item.Meta.Pricing.OutputPer1K,
-			Endpoint:    endpoint,
-			SDK:         sdk,
-			Summary:     summary,
+			ModelID:    modelID,
+			Name:       modelID,
+			Vendor:     vendor,
+			Capability: capability,
+			Pricing:    materializeModelPricing(toPortalModelPricing(item.Meta.Pricing)),
+			Endpoint:   endpoint,
+			SDK:        sdk,
+			Summary:    summary,
 		})
 	}
 
@@ -115,6 +116,19 @@ func (s *Service) loadActiveModelPricesFromDB(ctx context.Context) ([]activeMode
 			c.capability,
 			p.input_price_per_1k_micro_yuan,
 			p.output_price_per_1k_micro_yuan,
+			p.input_request_price_micro_yuan,
+			p.cache_creation_input_token_price_per_1k_micro_yuan,
+			p.cache_creation_input_token_price_above_1hr_per_1k_micro_yuan,
+			p.cache_read_input_token_price_per_1k_micro_yuan,
+			p.input_token_price_above_200k_per_1k_micro_yuan,
+			p.output_token_price_above_200k_per_1k_micro_yuan,
+			p.cache_creation_input_token_price_above_200k_per_1k_micro_yuan,
+			p.cache_read_input_token_price_above_200k_per_1k_micro_yuan,
+			p.output_image_price_micro_yuan,
+			p.output_image_token_price_per_1k_micro_yuan,
+			p.input_image_price_micro_yuan,
+			p.input_image_token_price_per_1k_micro_yuan,
+			p.supports_prompt_caching,
 			c.endpoint,
 			c.sdk,
 			c.summary
@@ -139,15 +153,14 @@ func (s *Service) loadActiveModelPricesFromDB(ctx context.Context) ([]activeMode
 				name = modelID
 			}
 			entries = append(entries, activeModelPrice{
-				ModelID:     modelID,
-				Name:        name,
-				Vendor:      strings.TrimSpace(record["vendor"].String()),
-				Capability:  strings.TrimSpace(record["capability"].String()),
-				InputPer1K:  microYuanToRMB(record["input_price_per_1k_micro_yuan"].Int64()),
-				OutputPer1K: microYuanToRMB(record["output_price_per_1k_micro_yuan"].Int64()),
-				Endpoint:    strings.TrimSpace(record["endpoint"].String()),
-				SDK:         strings.TrimSpace(record["sdk"].String()),
-				Summary:     strings.TrimSpace(record["summary"].String()),
+				ModelID:    modelID,
+				Name:       name,
+				Vendor:     strings.TrimSpace(record["vendor"].String()),
+				Capability: strings.TrimSpace(record["capability"].String()),
+				Pricing:    modelPricingFromPriceVersionRecord(record),
+				Endpoint:   strings.TrimSpace(record["endpoint"].String()),
+				SDK:        strings.TrimSpace(record["sdk"].String()),
+				Summary:    strings.TrimSpace(record["summary"].String()),
 			})
 		}
 		return entries, nil
@@ -187,8 +200,8 @@ func (s *Service) syncModelCatalogFromGateway(ctx context.Context, entries []act
 				item.Name,
 				item.Vendor,
 				item.Capability,
-				item.InputPer1K,
-				item.OutputPer1K,
+				item.Pricing.InputPer1K,
+				item.Pricing.OutputPer1K,
 				item.Endpoint,
 				item.SDK,
 				item.Summary,
@@ -265,10 +278,39 @@ func (s *Service) upsertBillingModels(ctx context.Context, entries []activeModel
 			continue
 		}
 
-		inputMicro := rmbToMicroYuan(item.InputPer1K)
-		outputMicro := rmbToMicroYuan(item.OutputPer1K)
+		pricing := materializeModelPricing(item.Pricing)
+		inputMicro := rmbToMicroYuan(pricing.InputPer1K)
+		outputMicro := rmbToMicroYuan(pricing.OutputPer1K)
+		inputRequestMicro := rmbToMicroYuan(pricing.InputCostPerRequest)
+		cacheCreationMicro := rmbToMicroYuan(pricing.CacheCreationInputTokenCost * 1000)
+		cacheCreationAbove1hrMicro := rmbToMicroYuan(pricing.CacheCreationInputTokenCostAbove1hr * 1000)
+		cacheReadMicro := rmbToMicroYuan(pricing.CacheReadInputTokenCost * 1000)
+		inputAbove200kMicro := rmbToMicroYuan(pricing.InputCostPerTokenAbove200kTokens * 1000)
+		outputAbove200kMicro := rmbToMicroYuan(pricing.OutputCostPerTokenAbove200kTokens * 1000)
+		cacheCreationAbove200kMicro := rmbToMicroYuan(pricing.CacheCreationInputTokenCostAbove200kTokens * 1000)
+		cacheReadAbove200kMicro := rmbToMicroYuan(pricing.CacheReadInputTokenCostAbove200kTokens * 1000)
+		outputImageMicro := rmbToMicroYuan(pricing.OutputCostPerImage)
+		outputImageTokenMicro := rmbToMicroYuan(pricing.OutputCostPerImageToken * 1000)
+		inputImageMicro := rmbToMicroYuan(pricing.InputCostPerImage)
+		inputImageTokenMicro := rmbToMicroYuan(pricing.InputCostPerImageToken * 1000)
 		current, err := s.db.GetOne(ctx, `
-			SELECT id, input_price_per_1k_micro_yuan, output_price_per_1k_micro_yuan
+			SELECT
+				id,
+				input_price_per_1k_micro_yuan,
+				output_price_per_1k_micro_yuan,
+				input_request_price_micro_yuan,
+				cache_creation_input_token_price_per_1k_micro_yuan,
+				cache_creation_input_token_price_above_1hr_per_1k_micro_yuan,
+				cache_read_input_token_price_per_1k_micro_yuan,
+				input_token_price_above_200k_per_1k_micro_yuan,
+				output_token_price_above_200k_per_1k_micro_yuan,
+				cache_creation_input_token_price_above_200k_per_1k_micro_yuan,
+				cache_read_input_token_price_above_200k_per_1k_micro_yuan,
+				output_image_price_micro_yuan,
+				output_image_token_price_per_1k_micro_yuan,
+				input_image_price_micro_yuan,
+				input_image_token_price_per_1k_micro_yuan,
+				supports_prompt_caching
 			FROM billing_model_price_version
 			WHERE model_id = ? AND status = 'active' AND effective_to IS NULL
 			ORDER BY id DESC
@@ -279,7 +321,20 @@ func (s *Service) upsertBillingModels(ctx context.Context, entries []activeModel
 
 		if len(current) > 0 &&
 			current["input_price_per_1k_micro_yuan"].Int64() == inputMicro &&
-			current["output_price_per_1k_micro_yuan"].Int64() == outputMicro {
+			current["output_price_per_1k_micro_yuan"].Int64() == outputMicro &&
+			current["input_request_price_micro_yuan"].Int64() == inputRequestMicro &&
+			current["cache_creation_input_token_price_per_1k_micro_yuan"].Int64() == cacheCreationMicro &&
+			current["cache_creation_input_token_price_above_1hr_per_1k_micro_yuan"].Int64() == cacheCreationAbove1hrMicro &&
+			current["cache_read_input_token_price_per_1k_micro_yuan"].Int64() == cacheReadMicro &&
+			current["input_token_price_above_200k_per_1k_micro_yuan"].Int64() == inputAbove200kMicro &&
+			current["output_token_price_above_200k_per_1k_micro_yuan"].Int64() == outputAbove200kMicro &&
+			current["cache_creation_input_token_price_above_200k_per_1k_micro_yuan"].Int64() == cacheCreationAbove200kMicro &&
+			current["cache_read_input_token_price_above_200k_per_1k_micro_yuan"].Int64() == cacheReadAbove200kMicro &&
+			current["output_image_price_micro_yuan"].Int64() == outputImageMicro &&
+			current["output_image_token_price_per_1k_micro_yuan"].Int64() == outputImageTokenMicro &&
+			current["input_image_price_micro_yuan"].Int64() == inputImageMicro &&
+			current["input_image_token_price_per_1k_micro_yuan"].Int64() == inputImageTokenMicro &&
+			current["supports_prompt_caching"].Int64() == int64(boolToInt(pricing.SupportsPromptCaching)) {
 			continue
 		}
 
@@ -294,11 +349,31 @@ func (s *Service) upsertBillingModels(ctx context.Context, entries []activeModel
 		}
 		if _, err = s.db.Exec(ctx, `
 			INSERT INTO billing_model_price_version
-			(model_id, currency, input_price_per_1k_micro_yuan, output_price_per_1k_micro_yuan, effective_from, status)
-			VALUES (?, 'CNY', ?, ?, ?, 'active')`,
+			(model_id, currency, input_price_per_1k_micro_yuan, output_price_per_1k_micro_yuan,
+			 input_request_price_micro_yuan, cache_creation_input_token_price_per_1k_micro_yuan,
+			 cache_creation_input_token_price_above_1hr_per_1k_micro_yuan, cache_read_input_token_price_per_1k_micro_yuan,
+			 input_token_price_above_200k_per_1k_micro_yuan, output_token_price_above_200k_per_1k_micro_yuan,
+			 cache_creation_input_token_price_above_200k_per_1k_micro_yuan, cache_read_input_token_price_above_200k_per_1k_micro_yuan,
+			 output_image_price_micro_yuan, output_image_token_price_per_1k_micro_yuan,
+			 input_image_price_micro_yuan, input_image_token_price_per_1k_micro_yuan, supports_prompt_caching,
+			 effective_from, status)
+			VALUES (?, 'CNY', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
 			modelID,
 			inputMicro,
 			outputMicro,
+			inputRequestMicro,
+			cacheCreationMicro,
+			cacheCreationAbove1hrMicro,
+			cacheReadMicro,
+			inputAbove200kMicro,
+			outputAbove200kMicro,
+			cacheCreationAbove200kMicro,
+			cacheReadAbove200kMicro,
+			outputImageMicro,
+			outputImageTokenMicro,
+			inputImageMicro,
+			inputImageTokenMicro,
+			boolToInt(pricing.SupportsPromptCaching),
 			now,
 		); err != nil {
 			return gerror.Wrapf(err, "insert billing model price failed: %s", modelID)
@@ -342,7 +417,8 @@ func (s *Service) upsertBillingModels(ctx context.Context, entries []activeModel
 }
 
 func hasValidModelPrice(item activeModelPrice) bool {
-	return item.InputPer1K > 0 || item.OutputPer1K > 0
+	pricing := materializeModelPricing(item.Pricing)
+	return pricing.InputPer1K > 0 || pricing.OutputPer1K > 0
 }
 
 func buildModelPriceIndex(entries []activeModelPrice) map[string]activeModelPrice {
@@ -369,9 +445,125 @@ func lookupModelPrice(modelName string, index map[string]activeModelPrice) (floa
 	if !ok {
 		return 0, 0, false
 	}
-	return item.InputPer1K, item.OutputPer1K, true
+	pricing := materializeModelPricing(item.Pricing)
+	return pricing.InputPer1K, pricing.OutputPer1K, true
 }
 
 func normalizeModelPriceKey(v string) string {
 	return strings.ToLower(strings.TrimSpace(v))
+}
+
+func toPortalModelPricing(src clientK8s.ProviderPricing) model.ModelPricing {
+	return model.ModelPricing{
+		Currency:                                   src.Currency,
+		InputPer1K:                                 src.InputPer1K,
+		OutputPer1K:                                src.OutputPer1K,
+		InputCostPerToken:                          src.InputCostPerToken,
+		OutputCostPerToken:                         src.OutputCostPerToken,
+		InputCostPerRequest:                        src.InputCostPerRequest,
+		CacheCreationInputTokenCost:                src.CacheCreationInputTokenCost,
+		CacheCreationInputTokenCostAbove1hr:        src.CacheCreationInputTokenCostAbove1hr,
+		CacheReadInputTokenCost:                    src.CacheReadInputTokenCost,
+		InputCostPerTokenAbove200kTokens:           src.InputCostPerTokenAbove200kTokens,
+		OutputCostPerTokenAbove200kTokens:          src.OutputCostPerTokenAbove200kTokens,
+		CacheCreationInputTokenCostAbove200kTokens: src.CacheCreationInputTokenCostAbove200kTokens,
+		CacheReadInputTokenCostAbove200kTokens:     src.CacheReadInputTokenCostAbove200kTokens,
+		OutputCostPerImage:                         src.OutputCostPerImage,
+		OutputCostPerImageToken:                    src.OutputCostPerImageToken,
+		InputCostPerImage:                          src.InputCostPerImage,
+		InputCostPerImageToken:                     src.InputCostPerImageToken,
+		SupportsPromptCaching:                      src.SupportsPromptCaching,
+	}
+}
+
+func modelPricingFromPriceVersionRecord(record gdb.Record) model.ModelPricing {
+	inputPer1K := microYuanToRMB(record["input_price_per_1k_micro_yuan"].Int64())
+	outputPer1K := microYuanToRMB(record["output_price_per_1k_micro_yuan"].Int64())
+	return materializeModelPricing(model.ModelPricing{
+		Currency:                                   billingCurrencyCNY,
+		InputPer1K:                                 inputPer1K,
+		OutputPer1K:                                outputPer1K,
+		InputCostPerToken:                          inputPer1K / 1000,
+		OutputCostPerToken:                         outputPer1K / 1000,
+		InputCostPerRequest:                        microYuanToRMB(record["input_request_price_micro_yuan"].Int64()),
+		CacheCreationInputTokenCost:                microYuanToRMB(record["cache_creation_input_token_price_per_1k_micro_yuan"].Int64()) / 1000,
+		CacheCreationInputTokenCostAbove1hr:        microYuanToRMB(record["cache_creation_input_token_price_above_1hr_per_1k_micro_yuan"].Int64()) / 1000,
+		CacheReadInputTokenCost:                    microYuanToRMB(record["cache_read_input_token_price_per_1k_micro_yuan"].Int64()) / 1000,
+		InputCostPerTokenAbove200kTokens:           microYuanToRMB(record["input_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
+		OutputCostPerTokenAbove200kTokens:          microYuanToRMB(record["output_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
+		CacheCreationInputTokenCostAbove200kTokens: microYuanToRMB(record["cache_creation_input_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
+		CacheReadInputTokenCostAbove200kTokens:     microYuanToRMB(record["cache_read_input_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
+		OutputCostPerImage:                         microYuanToRMB(record["output_image_price_micro_yuan"].Int64()),
+		OutputCostPerImageToken:                    microYuanToRMB(record["output_image_token_price_per_1k_micro_yuan"].Int64()) / 1000,
+		InputCostPerImage:                          microYuanToRMB(record["input_image_price_micro_yuan"].Int64()),
+		InputCostPerImageToken:                     microYuanToRMB(record["input_image_token_price_per_1k_micro_yuan"].Int64()) / 1000,
+		SupportsPromptCaching:                      record["supports_prompt_caching"].Int64() > 0,
+	})
+}
+
+func materializeModelPricing(raw model.ModelPricing) model.ModelPricing {
+	pricing := raw
+	if strings.TrimSpace(pricing.Currency) == "" {
+		pricing.Currency = billingCurrencyCNY
+	}
+	if pricing.InputCostPerToken == 0 && pricing.InputPer1K > 0 {
+		pricing.InputCostPerToken = pricing.InputPer1K / 1000
+	}
+	if pricing.OutputCostPerToken == 0 && pricing.OutputPer1K > 0 {
+		pricing.OutputCostPerToken = pricing.OutputPer1K / 1000
+	}
+	if pricing.InputPer1K == 0 && pricing.InputCostPerToken > 0 {
+		pricing.InputPer1K = pricing.InputCostPerToken * 1000
+	}
+	if pricing.OutputPer1K == 0 && pricing.OutputCostPerToken > 0 {
+		pricing.OutputPer1K = pricing.OutputCostPerToken * 1000
+	}
+	pricing.CacheCreationInputTokenCost = firstPositiveFloat(
+		pricing.CacheCreationInputTokenCost,
+		pricing.InputCostPerToken*1.25,
+	)
+	pricing.CacheCreationInputTokenCostAbove1hr = firstPositiveFloat(
+		pricing.CacheCreationInputTokenCostAbove1hr,
+		pricing.InputCostPerToken*2,
+		pricing.CacheCreationInputTokenCost,
+	)
+	pricing.CacheReadInputTokenCost = firstPositiveFloat(
+		pricing.CacheReadInputTokenCost,
+		pricing.InputCostPerToken*0.1,
+		pricing.OutputCostPerToken*0.1,
+	)
+	pricing.InputCostPerTokenAbove200kTokens = firstPositiveFloat(
+		pricing.InputCostPerTokenAbove200kTokens,
+		pricing.InputCostPerToken,
+	)
+	pricing.OutputCostPerTokenAbove200kTokens = firstPositiveFloat(
+		pricing.OutputCostPerTokenAbove200kTokens,
+		pricing.OutputCostPerToken,
+	)
+	pricing.CacheCreationInputTokenCostAbove200kTokens = firstPositiveFloat(
+		pricing.CacheCreationInputTokenCostAbove200kTokens,
+		pricing.CacheCreationInputTokenCost,
+	)
+	pricing.CacheReadInputTokenCostAbove200kTokens = firstPositiveFloat(
+		pricing.CacheReadInputTokenCostAbove200kTokens,
+		pricing.CacheReadInputTokenCost,
+	)
+	pricing.OutputCostPerImageToken = firstPositiveFloat(
+		pricing.OutputCostPerImageToken,
+		pricing.OutputCostPerToken,
+	)
+	pricing.InputCostPerImageToken = firstPositiveFloat(
+		pricing.InputCostPerImageToken,
+		pricing.InputCostPerToken,
+	)
+	return pricing
+}
+
+func firstPositiveFloat(values ...float64) float64 {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }

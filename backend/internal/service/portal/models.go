@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/errors/gerror"
@@ -59,9 +58,24 @@ func toPortalModelInfo(src clientK8s.ProviderModel) model.ModelInfo {
 		Features:   src.Meta.Capabilities.Features,
 	}
 	pricing := model.ModelPricing{
-		Currency:    billingCurrencyCNY,
-		InputPer1K:  src.Meta.Pricing.InputPer1K,
-		OutputPer1K: src.Meta.Pricing.OutputPer1K,
+		Currency:                                   billingCurrencyCNY,
+		InputPer1K:                                 src.Meta.Pricing.InputPer1K,
+		OutputPer1K:                                src.Meta.Pricing.OutputPer1K,
+		InputCostPerToken:                          src.Meta.Pricing.InputCostPerToken,
+		OutputCostPerToken:                         src.Meta.Pricing.OutputCostPerToken,
+		InputCostPerRequest:                        src.Meta.Pricing.InputCostPerRequest,
+		CacheCreationInputTokenCost:                src.Meta.Pricing.CacheCreationInputTokenCost,
+		CacheCreationInputTokenCostAbove1hr:        src.Meta.Pricing.CacheCreationInputTokenCostAbove1hr,
+		CacheReadInputTokenCost:                    src.Meta.Pricing.CacheReadInputTokenCost,
+		InputCostPerTokenAbove200kTokens:           src.Meta.Pricing.InputCostPerTokenAbove200kTokens,
+		OutputCostPerTokenAbove200kTokens:          src.Meta.Pricing.OutputCostPerTokenAbove200kTokens,
+		CacheCreationInputTokenCostAbove200kTokens: src.Meta.Pricing.CacheCreationInputTokenCostAbove200kTokens,
+		CacheReadInputTokenCostAbove200kTokens:     src.Meta.Pricing.CacheReadInputTokenCostAbove200kTokens,
+		OutputCostPerImage:                         src.Meta.Pricing.OutputCostPerImage,
+		OutputCostPerImageToken:                    src.Meta.Pricing.OutputCostPerImageToken,
+		InputCostPerImage:                          src.Meta.Pricing.InputCostPerImage,
+		InputCostPerImageToken:                     src.Meta.Pricing.InputCostPerImageToken,
+		SupportsPromptCaching:                      src.Meta.Pricing.SupportsPromptCaching,
 	}
 	limits := model.ModelLimits{
 		RPM:           src.Meta.Limits.RPM,
@@ -88,7 +102,7 @@ func toPortalModelInfo(src clientK8s.ProviderModel) model.ModelInfo {
 		OutputTokenPrice: pricing.OutputPer1K,
 		Endpoint:         endpoint,
 		SDK:              src.Protocol,
-		UpdatedAt:        time.Now().Format("2006-01-02"),
+		UpdatedAt:        model.DayText(model.NowInAppLocation()),
 		Summary:          src.Meta.Intro,
 		Tags:             src.Meta.Tags,
 		Capabilities:     capabilities,
@@ -105,34 +119,37 @@ func (s *Service) GetOpenStats(ctx context.Context, consumerName string) (model.
 		activeKeys     int64
 	)
 
+	now := model.NowInAppLocation()
+	today := model.DayText(now)
+	startOfToday := model.StartOfAppDay(now)
+	sevenDaysAgo := model.DayText(startOfToday.AddDate(0, 0, -6))
+
 	todayRecord, err := s.db.GetOne(ctx, `
-		SELECT COALESCE(COUNT(1),0) AS calls
-		FROM billing_usage_event
+		SELECT COALESCE(SUM(request_count),0) AS calls
+		FROM portal_usage_daily
 		WHERE consumer_name = ?
-		  AND request_status = 'success'
-		  AND DATE(occurred_at) = CURDATE()`, consumerName)
+		  AND billing_date = ?`, consumerName, today)
 	if err != nil {
 		return model.OpenStats{}, gerror.Wrap(err, "query today stats failed")
 	}
 	todayCalls = todayRecord["calls"].Int64()
 
 	todayCostRecord, err := s.db.GetValue(ctx, `
-		SELECT COALESCE(SUM(0 - amount_micro_yuan),0)
-		FROM billing_transaction
+		SELECT COALESCE(SUM(cost_amount),0)
+		FROM portal_usage_daily
 		WHERE consumer_name = ?
-		  AND tx_type IN ('consume', 'reconcile')
-		  AND DATE(occurred_at) = CURDATE()`, consumerName)
+		  AND billing_date = ?`, consumerName, today)
 	if err != nil {
 		return model.OpenStats{}, gerror.Wrap(err, "query today cost failed")
 	}
-	todayCost = todayCostRecord.Int64()
+	todayCost = rmbToMicroYuan(todayCostRecord.Float64())
 
 	last7Record, err := s.db.GetOne(ctx, `
-		SELECT COALESCE(COUNT(1),0) AS calls
-		FROM billing_usage_event
+		SELECT COALESCE(SUM(request_count),0) AS calls
+		FROM portal_usage_daily
 		WHERE consumer_name = ?
-		  AND request_status = 'success'
-		  AND occurred_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)`, consumerName)
+		  AND billing_date >= ?
+		  AND billing_date <= ?`, consumerName, sevenDaysAgo, today)
 	if err != nil {
 		return model.OpenStats{}, gerror.Wrap(err, "query 7days stats failed")
 	}
@@ -144,7 +161,7 @@ func (s *Service) GetOpenStats(ctx context.Context, consumerName string) (model.
 		WHERE consumer_name = ?
 		  AND deleted_at IS NULL
 		  AND status = 'active'
-		  AND (expires_at IS NULL OR expires_at > NOW())`, consumerName)
+		  AND (expires_at IS NULL OR expires_at > ?)`, consumerName, now)
 	if err != nil {
 		return model.OpenStats{}, gerror.Wrap(err, "query active key failed")
 	}
@@ -161,31 +178,29 @@ func (s *Service) GetOpenStats(ctx context.Context, consumerName string) (model.
 func (s *Service) ListCostDetails(ctx context.Context, consumerName string) ([]model.CostDetailRecord, error) {
 	records, err := s.db.GetAll(ctx, `
 		SELECT
-			DATE(occurred_at) AS billing_date,
-			model_id,
-			COUNT(1) AS request_count,
-			COALESCE(SUM(input_tokens + output_tokens), 0) AS total_tokens,
-			COALESCE(SUM(0 - amount_micro_yuan), 0) AS total_cost_micro_yuan
-		FROM billing_transaction
+			billing_date,
+			model_name,
+			request_count,
+			total_tokens,
+			cost_amount
+		FROM portal_usage_daily
 		WHERE consumer_name = ?
-		  AND tx_type IN ('consume', 'reconcile')
-		GROUP BY DATE(occurred_at), model_id
-		ORDER BY billing_date DESC, model_id ASC`, consumerName)
+		ORDER BY billing_date DESC, model_name ASC`, consumerName)
 	if err != nil {
 		return nil, gerror.Wrap(err, "query cost details failed")
 	}
 
 	items := make([]model.CostDetailRecord, 0, len(records))
 	for _, record := range records {
-		billingDate := record["billing_date"].Time().Format("2006-01-02")
-		modelID := record["model_id"].String()
+		billingDate := strings.TrimSpace(record["billing_date"].String())
+		modelID := strings.TrimSpace(record["model_name"].String())
 		items = append(items, model.CostDetailRecord{
 			ID:     fmt.Sprintf("COST-%s-%s", billingDate, modelID),
 			Date:   billingDate,
 			Model:  modelID,
 			Calls:  record["request_count"].Int64(),
 			Tokens: record["total_tokens"].Int64(),
-			Cost:   microYuanToRMB(record["total_cost_micro_yuan"].Int64()),
+			Cost:   record["cost_amount"].Float64(),
 		})
 	}
 	return items, nil
@@ -200,6 +215,19 @@ func (s *Service) listModelsFromCatalogDB(ctx context.Context) ([]model.ModelInf
 			c.capability,
 			p.input_price_per_1k_micro_yuan,
 			p.output_price_per_1k_micro_yuan,
+			p.input_request_price_micro_yuan,
+			p.cache_creation_input_token_price_per_1k_micro_yuan,
+			p.cache_creation_input_token_price_above_1hr_per_1k_micro_yuan,
+			p.cache_read_input_token_price_per_1k_micro_yuan,
+			p.input_token_price_above_200k_per_1k_micro_yuan,
+			p.output_token_price_above_200k_per_1k_micro_yuan,
+			p.cache_creation_input_token_price_above_200k_per_1k_micro_yuan,
+			p.cache_read_input_token_price_above_200k_per_1k_micro_yuan,
+			p.output_image_price_micro_yuan,
+			p.output_image_token_price_per_1k_micro_yuan,
+			p.input_image_price_micro_yuan,
+			p.input_image_token_price_per_1k_micro_yuan,
+			p.supports_prompt_caching,
 			c.endpoint,
 			c.sdk,
 			c.summary,
@@ -230,6 +258,19 @@ func (s *Service) getModelFromCatalogDB(ctx context.Context, id string) (model.M
 			c.capability,
 			p.input_price_per_1k_micro_yuan,
 			p.output_price_per_1k_micro_yuan,
+			p.input_request_price_micro_yuan,
+			p.cache_creation_input_token_price_per_1k_micro_yuan,
+			p.cache_creation_input_token_price_above_1hr_per_1k_micro_yuan,
+			p.cache_read_input_token_price_per_1k_micro_yuan,
+			p.input_token_price_above_200k_per_1k_micro_yuan,
+			p.output_token_price_above_200k_per_1k_micro_yuan,
+			p.cache_creation_input_token_price_above_200k_per_1k_micro_yuan,
+			p.cache_read_input_token_price_above_200k_per_1k_micro_yuan,
+			p.output_image_price_micro_yuan,
+			p.output_image_token_price_per_1k_micro_yuan,
+			p.input_image_price_micro_yuan,
+			p.input_image_token_price_per_1k_micro_yuan,
+			p.supports_prompt_caching,
 			c.endpoint,
 			c.sdk,
 			c.summary,
@@ -260,9 +301,11 @@ func toPortalModelInfoFromRecord(record gdb.Record) model.ModelInfo {
 	}
 	inputPer1K := microYuanToRMB(record["input_price_per_1k_micro_yuan"].Int64())
 	outputPer1K := microYuanToRMB(record["output_price_per_1k_micro_yuan"].Int64())
-	updatedAt := time.Now().Format("2006-01-02")
+	inputPerToken := inputPer1K / 1000
+	outputPerToken := outputPer1K / 1000
+	updatedAt := model.DayText(model.NowInAppLocation())
 	if updatedTime := record["updated_at"].Time(); !updatedTime.IsZero() {
-		updatedAt = updatedTime.Format("2006-01-02")
+		updatedAt = model.DayText(updatedTime)
 	}
 	return model.ModelInfo{
 		ID:               modelID,
@@ -276,9 +319,24 @@ func toPortalModelInfoFromRecord(record gdb.Record) model.ModelInfo {
 		UpdatedAt:        updatedAt,
 		Summary:          strings.TrimSpace(record["summary"].String()),
 		Pricing: model.ModelPricing{
-			Currency:    billingCurrencyCNY,
-			InputPer1K:  inputPer1K,
-			OutputPer1K: outputPer1K,
+			Currency:                                   billingCurrencyCNY,
+			InputPer1K:                                 inputPer1K,
+			OutputPer1K:                                outputPer1K,
+			InputCostPerToken:                          inputPerToken,
+			OutputCostPerToken:                         outputPerToken,
+			InputCostPerRequest:                        microYuanToRMB(record["input_request_price_micro_yuan"].Int64()),
+			CacheCreationInputTokenCost:                microYuanToRMB(record["cache_creation_input_token_price_per_1k_micro_yuan"].Int64()) / 1000,
+			CacheCreationInputTokenCostAbove1hr:        microYuanToRMB(record["cache_creation_input_token_price_above_1hr_per_1k_micro_yuan"].Int64()) / 1000,
+			CacheReadInputTokenCost:                    microYuanToRMB(record["cache_read_input_token_price_per_1k_micro_yuan"].Int64()) / 1000,
+			InputCostPerTokenAbove200kTokens:           microYuanToRMB(record["input_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
+			OutputCostPerTokenAbove200kTokens:          microYuanToRMB(record["output_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
+			CacheCreationInputTokenCostAbove200kTokens: microYuanToRMB(record["cache_creation_input_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
+			CacheReadInputTokenCostAbove200kTokens:     microYuanToRMB(record["cache_read_input_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
+			OutputCostPerImage:                         microYuanToRMB(record["output_image_price_micro_yuan"].Int64()),
+			OutputCostPerImageToken:                    microYuanToRMB(record["output_image_token_price_per_1k_micro_yuan"].Int64()) / 1000,
+			InputCostPerImage:                          microYuanToRMB(record["input_image_price_micro_yuan"].Int64()),
+			InputCostPerImageToken:                     microYuanToRMB(record["input_image_token_price_per_1k_micro_yuan"].Int64()) / 1000,
+			SupportsPromptCaching:                      record["supports_prompt_caching"].Int64() > 0,
 		},
 	}
 }

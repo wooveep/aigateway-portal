@@ -31,11 +31,35 @@ const (
 	microYuanPerRMB             int64 = 1_000_000
 )
 
+const billingUsageEventInsertSQL = `
+			INSERT INTO billing_usage_event
+			(event_id, request_id, trace_id, consumer_name, api_key_id, route_name, request_path, request_kind, model_id,
+			 request_status, usage_status, http_status, error_code, error_message,
+			 input_tokens, output_tokens, total_tokens, cache_creation_input_tokens, cache_creation_5m_input_tokens,
+			 cache_creation_1h_input_tokens, cache_read_input_tokens, input_image_tokens, output_image_tokens,
+			 input_image_count, output_image_count, request_count, cache_ttl,
+			 input_token_details_json, output_token_details_json, provider_usage_json,
+			 cost_micro_yuan, price_version_id, started_at, finished_at, redis_stream_id, occurred_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
 type billingModelPriceProjection struct {
-	ModelID      string
-	PriceVersion int64
-	InputPer1K   int64
-	OutputPer1K  int64
+	ModelID                                             string
+	PriceVersion                                        int64
+	InputPer1K                                          int64
+	OutputPer1K                                         int64
+	InputRequestPriceMicroYuan                          int64
+	CacheCreationInputTokenPricePer1KMicroYuan          int64
+	CacheCreationInputTokenPriceAbove1hrPer1KMicroYuan  int64
+	CacheReadInputTokenPricePer1KMicroYuan              int64
+	InputTokenPriceAbove200kPer1KMicroYuan              int64
+	OutputTokenPriceAbove200kPer1KMicroYuan             int64
+	CacheCreationInputTokenPriceAbove200kPer1KMicroYuan int64
+	CacheReadInputTokenPriceAbove200kPer1KMicroYuan     int64
+	OutputImagePriceMicroYuan                           int64
+	OutputImageTokenPricePer1KMicroYuan                 int64
+	InputImagePriceMicroYuan                            int64
+	InputImageTokenPricePer1KMicroYuan                  int64
+	SupportsPromptCaching                               bool
 }
 
 type billingWalletProjection struct {
@@ -44,31 +68,41 @@ type billingWalletProjection struct {
 }
 
 type billingUsageEventPayload struct {
-	EventID                string
-	RequestID              string
-	TraceID                string
-	ConsumerName           string
-	RouteName              string
-	RequestPath            string
-	RequestKind            string
-	APIKeyID               string
-	ModelID                string
-	RequestStatus          string
-	UsageStatus            string
-	HTTPStatus             int
-	ErrorCode              string
-	ErrorMessage           string
-	InputTokens            int64
-	OutputTokens           int64
-	TotalTokens            int64
-	InputTokenDetailsJSON  string
-	OutputTokenDetailsJSON string
-	ProviderUsageJSON      string
-	CostMicroYuan          int64
-	PriceVersionID         int64
-	StartedAt              time.Time
-	FinishedAt             time.Time
-	OccurredAt             time.Time
+	EventID                    string
+	RequestID                  string
+	TraceID                    string
+	ConsumerName               string
+	RouteName                  string
+	RequestPath                string
+	RequestKind                string
+	APIKeyID                   string
+	ModelID                    string
+	RequestStatus              string
+	UsageStatus                string
+	HTTPStatus                 int
+	ErrorCode                  string
+	ErrorMessage               string
+	InputTokens                int64
+	OutputTokens               int64
+	TotalTokens                int64
+	CacheCreationInputTokens   int64
+	CacheCreation5mInputTokens int64
+	CacheCreation1hInputTokens int64
+	CacheReadInputTokens       int64
+	InputImageTokens           int64
+	OutputImageTokens          int64
+	InputImageCount            int64
+	OutputImageCount           int64
+	RequestCount               int64
+	CacheTTL                   string
+	InputTokenDetailsJSON      string
+	OutputTokenDetailsJSON     string
+	ProviderUsageJSON          string
+	CostMicroYuan              int64
+	PriceVersionID             int64
+	StartedAt                  time.Time
+	FinishedAt                 time.Time
+	OccurredAt                 time.Time
 }
 
 func rmbToMicroYuan(amount float64) int64 {
@@ -120,15 +154,20 @@ func (s *Service) bootstrapBillingModels(ctx context.Context) error {
 			continue
 		}
 		entries = append(entries, activeModelPrice{
-			ModelID:     modelID,
-			Name:        strings.TrimSpace(record["name"].String()),
-			Vendor:      strings.TrimSpace(record["vendor"].String()),
-			Capability:  strings.TrimSpace(record["capability"].String()),
-			InputPer1K:  record["input_token_price"].Float64(),
-			OutputPer1K: record["output_token_price"].Float64(),
-			Endpoint:    strings.TrimSpace(record["endpoint"].String()),
-			SDK:         strings.TrimSpace(record["sdk"].String()),
-			Summary:     strings.TrimSpace(record["summary"].String()),
+			ModelID:    modelID,
+			Name:       strings.TrimSpace(record["name"].String()),
+			Vendor:     strings.TrimSpace(record["vendor"].String()),
+			Capability: strings.TrimSpace(record["capability"].String()),
+			Pricing: materializeModelPricing(model.ModelPricing{
+				Currency:           billingCurrencyCNY,
+				InputPer1K:         record["input_token_price"].Float64(),
+				OutputPer1K:        record["output_token_price"].Float64(),
+				InputCostPerToken:  record["input_token_price"].Float64() / 1000,
+				OutputCostPerToken: record["output_token_price"].Float64() / 1000,
+			}),
+			Endpoint: strings.TrimSpace(record["endpoint"].String()),
+			SDK:      strings.TrimSpace(record["sdk"].String()),
+			Summary:  strings.TrimSpace(record["summary"].String()),
 		})
 	}
 	return s.upsertBillingModels(ctx, entries)
@@ -162,7 +201,10 @@ func (s *Service) bootstrapLegacyBillingTransactions(ctx context.Context) error 
 	}
 	if _, err := s.db.Exec(ctx, `
 		INSERT INTO billing_transaction
-		(tx_id, consumer_name, tx_type, amount_micro_yuan, currency, source_type, source_id, model_id, input_tokens, output_tokens, occurred_at, created_at)
+		(tx_id, consumer_name, tx_type, amount_micro_yuan, currency, source_type, source_id, model_id,
+		 input_tokens, output_tokens, cache_creation_input_tokens, cache_creation_5m_input_tokens,
+		 cache_creation_1h_input_tokens, cache_read_input_tokens, input_image_tokens, output_image_tokens,
+		 input_image_count, output_image_count, request_count, occurred_at, created_at)
 		SELECT
 			CONCAT('u', SUBSTRING(SHA2(CONCAT('portal_usage_daily:', id), 256), 1, 32)),
 			consumer_name,
@@ -174,6 +216,15 @@ func (s *Service) bootstrapLegacyBillingTransactions(ctx context.Context) error 
 			model_name,
 			input_tokens,
 			output_tokens,
+			cache_creation_input_tokens,
+			cache_creation_5m_input_tokens,
+			cache_creation_1h_input_tokens,
+			cache_read_input_tokens,
+			input_image_tokens,
+			output_image_tokens,
+			input_image_count,
+			output_image_count,
+			request_count,
 			updated_at,
 			updated_at
 		FROM portal_usage_daily
@@ -186,6 +237,15 @@ func (s *Service) bootstrapLegacyBillingTransactions(ctx context.Context) error 
 			model_id = VALUES(model_id),
 			input_tokens = VALUES(input_tokens),
 			output_tokens = VALUES(output_tokens),
+			cache_creation_input_tokens = VALUES(cache_creation_input_tokens),
+			cache_creation_5m_input_tokens = VALUES(cache_creation_5m_input_tokens),
+			cache_creation_1h_input_tokens = VALUES(cache_creation_1h_input_tokens),
+			cache_read_input_tokens = VALUES(cache_read_input_tokens),
+			input_image_tokens = VALUES(input_image_tokens),
+			output_image_tokens = VALUES(output_image_tokens),
+			input_image_count = VALUES(input_image_count),
+			output_image_count = VALUES(output_image_count),
+			request_count = VALUES(request_count),
 			occurred_at = VALUES(occurred_at),
 			created_at = VALUES(created_at)`); err != nil {
 		return gerror.Wrap(err, "bootstrap usage transactions failed")
@@ -379,6 +439,19 @@ func (s *Service) projectBillingRuntimeToRedis(ctx context.Context, client *redi
 			"currency":                       billingCurrencyCNY,
 			"input_price_per_1k_micro_yuan":  price.InputPer1K,
 			"output_price_per_1k_micro_yuan": price.OutputPer1K,
+			"input_request_price_micro_yuan": price.InputRequestPriceMicroYuan,
+			"cache_creation_input_token_price_per_1k_micro_yuan":            price.CacheCreationInputTokenPricePer1KMicroYuan,
+			"cache_creation_input_token_price_above_1hr_per_1k_micro_yuan":  price.CacheCreationInputTokenPriceAbove1hrPer1KMicroYuan,
+			"cache_read_input_token_price_per_1k_micro_yuan":                price.CacheReadInputTokenPricePer1KMicroYuan,
+			"input_token_price_above_200k_per_1k_micro_yuan":                price.InputTokenPriceAbove200kPer1KMicroYuan,
+			"output_token_price_above_200k_per_1k_micro_yuan":               price.OutputTokenPriceAbove200kPer1KMicroYuan,
+			"cache_creation_input_token_price_above_200k_per_1k_micro_yuan": price.CacheCreationInputTokenPriceAbove200kPer1KMicroYuan,
+			"cache_read_input_token_price_above_200k_per_1k_micro_yuan":     price.CacheReadInputTokenPriceAbove200kPer1KMicroYuan,
+			"output_image_price_micro_yuan":                                 price.OutputImagePriceMicroYuan,
+			"output_image_token_price_per_1k_micro_yuan":                    price.OutputImageTokenPricePer1KMicroYuan,
+			"input_image_price_micro_yuan":                                  price.InputImagePriceMicroYuan,
+			"input_image_token_price_per_1k_micro_yuan":                     price.InputImageTokenPricePer1KMicroYuan,
+			"supports_prompt_caching":                                       boolToInt(price.SupportsPromptCaching),
 		}).Err(); err != nil {
 			return gerror.Wrapf(err, "sync billing model price to redis failed: %s", price.ModelID)
 		}
@@ -417,7 +490,20 @@ func (s *Service) syncConsumerBalanceToRedis(ctx context.Context, consumerName s
 
 func (s *Service) loadBillingModelPriceProjections(ctx context.Context) ([]billingModelPriceProjection, error) {
 	records, err := s.db.GetAll(ctx, `
-		SELECT c.model_id, p.id AS price_version_id, p.input_price_per_1k_micro_yuan, p.output_price_per_1k_micro_yuan
+		SELECT c.model_id, p.id AS price_version_id, p.input_price_per_1k_micro_yuan, p.output_price_per_1k_micro_yuan,
+			p.input_request_price_micro_yuan,
+			p.cache_creation_input_token_price_per_1k_micro_yuan,
+			p.cache_creation_input_token_price_above_1hr_per_1k_micro_yuan,
+			p.cache_read_input_token_price_per_1k_micro_yuan,
+			p.input_token_price_above_200k_per_1k_micro_yuan,
+			p.output_token_price_above_200k_per_1k_micro_yuan,
+			p.cache_creation_input_token_price_above_200k_per_1k_micro_yuan,
+			p.cache_read_input_token_price_above_200k_per_1k_micro_yuan,
+			p.output_image_price_micro_yuan,
+			p.output_image_token_price_per_1k_micro_yuan,
+			p.input_image_price_micro_yuan,
+			p.input_image_token_price_per_1k_micro_yuan,
+			p.supports_prompt_caching
 		FROM billing_model_catalog c
 		INNER JOIN billing_model_price_version p
 			ON p.model_id = c.model_id
@@ -434,13 +520,86 @@ func (s *Service) loadBillingModelPriceProjections(ctx context.Context) ([]billi
 			continue
 		}
 		items = append(items, billingModelPriceProjection{
-			ModelID:      modelID,
-			PriceVersion: record["price_version_id"].Int64(),
-			InputPer1K:   record["input_price_per_1k_micro_yuan"].Int64(),
-			OutputPer1K:  record["output_price_per_1k_micro_yuan"].Int64(),
+			ModelID:                    modelID,
+			PriceVersion:               record["price_version_id"].Int64(),
+			InputPer1K:                 record["input_price_per_1k_micro_yuan"].Int64(),
+			OutputPer1K:                record["output_price_per_1k_micro_yuan"].Int64(),
+			InputRequestPriceMicroYuan: record["input_request_price_micro_yuan"].Int64(),
+			CacheCreationInputTokenPricePer1KMicroYuan:          record["cache_creation_input_token_price_per_1k_micro_yuan"].Int64(),
+			CacheCreationInputTokenPriceAbove1hrPer1KMicroYuan:  record["cache_creation_input_token_price_above_1hr_per_1k_micro_yuan"].Int64(),
+			CacheReadInputTokenPricePer1KMicroYuan:              record["cache_read_input_token_price_per_1k_micro_yuan"].Int64(),
+			InputTokenPriceAbove200kPer1KMicroYuan:              record["input_token_price_above_200k_per_1k_micro_yuan"].Int64(),
+			OutputTokenPriceAbove200kPer1KMicroYuan:             record["output_token_price_above_200k_per_1k_micro_yuan"].Int64(),
+			CacheCreationInputTokenPriceAbove200kPer1KMicroYuan: record["cache_creation_input_token_price_above_200k_per_1k_micro_yuan"].Int64(),
+			CacheReadInputTokenPriceAbove200kPer1KMicroYuan:     record["cache_read_input_token_price_above_200k_per_1k_micro_yuan"].Int64(),
+			OutputImagePriceMicroYuan:                           record["output_image_price_micro_yuan"].Int64(),
+			OutputImageTokenPricePer1KMicroYuan:                 record["output_image_token_price_per_1k_micro_yuan"].Int64(),
+			InputImagePriceMicroYuan:                            record["input_image_price_micro_yuan"].Int64(),
+			InputImageTokenPricePer1KMicroYuan:                  record["input_image_token_price_per_1k_micro_yuan"].Int64(),
+			SupportsPromptCaching:                               record["supports_prompt_caching"].Int64() > 0,
 		})
 	}
 	return items, nil
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func billingUsageEventInsertArgs(payload billingUsageEventPayload, streamID string) []any {
+	return []any{
+		payload.EventID,
+		payload.RequestID,
+		nullIfEmpty(payload.TraceID),
+		payload.ConsumerName,
+		nullIfEmpty(payload.APIKeyID),
+		payload.RouteName,
+		payload.RequestPath,
+		payload.RequestKind,
+		payload.ModelID,
+		payload.RequestStatus,
+		payload.UsageStatus,
+		payload.HTTPStatus,
+		payload.ErrorCode,
+		payload.ErrorMessage,
+		payload.InputTokens,
+		payload.OutputTokens,
+		payload.TotalTokens,
+		payload.CacheCreationInputTokens,
+		payload.CacheCreation5mInputTokens,
+		payload.CacheCreation1hInputTokens,
+		payload.CacheReadInputTokens,
+		payload.InputImageTokens,
+		payload.OutputImageTokens,
+		payload.InputImageCount,
+		payload.OutputImageCount,
+		payload.RequestCount,
+		payload.CacheTTL,
+		nullIfEmpty(payload.InputTokenDetailsJSON),
+		nullIfEmpty(payload.OutputTokenDetailsJSON),
+		nullIfEmpty(payload.ProviderUsageJSON),
+		payload.CostMicroYuan,
+		nullIfZero(payload.PriceVersionID),
+		nullIfZeroTime(payload.StartedAt),
+		nullIfZeroTime(payload.FinishedAt),
+		streamID,
+		payload.OccurredAt,
+	}
+}
+
+func ensureBillingUsageConsumerGroup(ctx context.Context, client *redis.Client, stream string) error {
+	if err := client.XGroupCreateMkStream(ctx, stream, billingConsumerGroup, "0").Err(); err != nil &&
+		!strings.Contains(strings.ToUpper(err.Error()), "BUSYGROUP") {
+		return err
+	}
+	return nil
+}
+
+func isRedisNoGroupError(err error) bool {
+	return err != nil && strings.Contains(strings.ToUpper(err.Error()), "NOGROUP")
 }
 
 func (s *Service) consumeBillingUsageEventsLoop(ctx context.Context, binding clientK8s.AIQuotaBinding) {
@@ -451,8 +610,7 @@ func (s *Service) consumeBillingUsageEventsLoop(ctx context.Context, binding cli
 	if stream == "" {
 		stream = billingDefaultUsageStream
 	}
-	if err := client.XGroupCreateMkStream(ctx, stream, billingConsumerGroup, "0").Err(); err != nil &&
-		!strings.Contains(strings.ToUpper(err.Error()), "BUSYGROUP") {
+	if err := ensureBillingUsageConsumerGroup(ctx, client, stream); err != nil {
 		s.logf(ctx, "create billing redis consumer group failed: %v", err)
 		return
 	}
@@ -484,6 +642,15 @@ func (s *Service) consumeBillingUsageEventsLoop(ctx context.Context, binding cli
 			if ctx.Err() != nil {
 				return
 			}
+			if isRedisNoGroupError(err) {
+				if groupErr := ensureBillingUsageConsumerGroup(ctx, client, stream); groupErr != nil {
+					s.logf(ctx, "recreate billing redis consumer group failed: %v", groupErr)
+				} else {
+					s.logf(ctx, "recreated billing redis consumer group: stream=%s group=%s", stream, billingConsumerGroup)
+				}
+				time.Sleep(time.Second)
+				continue
+			}
 			s.logf(ctx, "billing usage event consume failed: %v", err)
 			time.Sleep(time.Second)
 			continue
@@ -512,40 +679,7 @@ func (s *Service) processBillingUsageEvent(ctx context.Context, streamID string,
 	}
 
 	err = s.db.Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
-		if _, txErr := tx.Exec(`
-			INSERT INTO billing_usage_event
-			(event_id, request_id, trace_id, consumer_name, api_key_id, route_name, request_path, request_kind, model_id,
-			 request_status, usage_status, http_status, error_code, error_message,
-			 input_tokens, output_tokens, total_tokens, input_token_details_json, output_token_details_json, provider_usage_json,
-			 cost_micro_yuan, price_version_id, started_at, finished_at, redis_stream_id, occurred_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			payload.EventID,
-			payload.RequestID,
-			nullIfEmpty(payload.TraceID),
-			payload.ConsumerName,
-			nullIfEmpty(payload.APIKeyID),
-			payload.RouteName,
-			payload.RequestPath,
-			payload.RequestKind,
-			payload.ModelID,
-			payload.RequestStatus,
-			payload.UsageStatus,
-			payload.HTTPStatus,
-			payload.ErrorCode,
-			payload.ErrorMessage,
-			payload.InputTokens,
-			payload.OutputTokens,
-			payload.TotalTokens,
-			nullIfEmpty(payload.InputTokenDetailsJSON),
-			nullIfEmpty(payload.OutputTokenDetailsJSON),
-			nullIfEmpty(payload.ProviderUsageJSON),
-			payload.CostMicroYuan,
-			nullIfZero(payload.PriceVersionID),
-			nullIfZeroTime(payload.StartedAt),
-			nullIfZeroTime(payload.FinishedAt),
-			streamID,
-			payload.OccurredAt,
-		); txErr != nil {
+		if _, txErr := tx.Exec(billingUsageEventInsertSQL, billingUsageEventInsertArgs(payload, streamID)...); txErr != nil {
 			if isDuplicateEntryErr(txErr) {
 				return nil
 			}
@@ -576,8 +710,12 @@ func (s *Service) processBillingUsageEvent(ctx context.Context, streamID string,
 
 		if _, txErr := tx.Exec(`
 			INSERT INTO billing_transaction
-			(tx_id, consumer_name, tx_type, amount_micro_yuan, currency, source_type, source_id, request_id, api_key_id, model_id, price_version_id, input_tokens, output_tokens, occurred_at)
-			VALUES (?, ?, 'consume', ?, 'CNY', 'billing_usage_event', ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(tx_id, consumer_name, tx_type, amount_micro_yuan, currency, source_type, source_id,
+			 request_id, api_key_id, model_id, price_version_id, input_tokens, output_tokens,
+			 cache_creation_input_tokens, cache_creation_5m_input_tokens, cache_creation_1h_input_tokens,
+			 cache_read_input_tokens, input_image_tokens, output_image_tokens, input_image_count,
+			 output_image_count, request_count, occurred_at)
+			VALUES (?, ?, 'consume', ?, 'CNY', 'billing_usage_event', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			"c"+sha256Hex("billing_usage_event:" + payload.EventID)[:32],
 			payload.ConsumerName,
 			0-payload.CostMicroYuan,
@@ -588,6 +726,15 @@ func (s *Service) processBillingUsageEvent(ctx context.Context, streamID string,
 			nullIfZero(payload.PriceVersionID),
 			payload.InputTokens,
 			payload.OutputTokens,
+			payload.CacheCreationInputTokens,
+			payload.CacheCreation5mInputTokens,
+			payload.CacheCreation1hInputTokens,
+			payload.CacheReadInputTokens,
+			payload.InputImageTokens,
+			payload.OutputImageTokens,
+			payload.InputImageCount,
+			payload.OutputImageCount,
+			payload.RequestCount,
 			payload.OccurredAt,
 		); txErr != nil {
 			return gerror.Wrap(txErr, "insert billing consume transaction failed")
@@ -608,23 +755,42 @@ func (s *Service) processBillingUsageEvent(ctx context.Context, streamID string,
 
 		if _, txErr := tx.Exec(`
 			INSERT INTO portal_usage_daily
-			(billing_date, consumer_name, model_name, request_count, input_tokens, output_tokens, total_tokens, cost_amount, source_from, source_to)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			(billing_date, consumer_name, model_name, request_count, input_tokens, output_tokens, total_tokens,
+			 cache_creation_input_tokens, cache_creation_5m_input_tokens, cache_creation_1h_input_tokens,
+			 cache_read_input_tokens, input_image_tokens, output_image_tokens, input_image_count, output_image_count,
+			 cost_amount, source_from, source_to)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON DUPLICATE KEY UPDATE
 				request_count = request_count + VALUES(request_count),
 				input_tokens = input_tokens + VALUES(input_tokens),
 				output_tokens = output_tokens + VALUES(output_tokens),
 				total_tokens = total_tokens + VALUES(total_tokens),
+				cache_creation_input_tokens = cache_creation_input_tokens + VALUES(cache_creation_input_tokens),
+				cache_creation_5m_input_tokens = cache_creation_5m_input_tokens + VALUES(cache_creation_5m_input_tokens),
+				cache_creation_1h_input_tokens = cache_creation_1h_input_tokens + VALUES(cache_creation_1h_input_tokens),
+				cache_read_input_tokens = cache_read_input_tokens + VALUES(cache_read_input_tokens),
+				input_image_tokens = input_image_tokens + VALUES(input_image_tokens),
+				output_image_tokens = output_image_tokens + VALUES(output_image_tokens),
+				input_image_count = input_image_count + VALUES(input_image_count),
+				output_image_count = output_image_count + VALUES(output_image_count),
 				cost_amount = cost_amount + VALUES(cost_amount),
 				source_from = IF(source_from IS NULL OR VALUES(source_from) < source_from, VALUES(source_from), source_from),
 				source_to = IF(source_to IS NULL OR VALUES(source_to) > source_to, VALUES(source_to), source_to)`,
-			payload.OccurredAt.Format("2006-01-02"),
+			model.DayText(payload.OccurredAt),
 			payload.ConsumerName,
 			payload.ModelID,
-			1,
+			maxInt64(payload.RequestCount, 1),
 			payload.InputTokens,
 			payload.OutputTokens,
 			payload.TotalTokens,
+			payload.CacheCreationInputTokens,
+			payload.CacheCreation5mInputTokens,
+			payload.CacheCreation1hInputTokens,
+			payload.CacheReadInputTokens,
+			payload.InputImageTokens,
+			payload.OutputImageTokens,
+			payload.InputImageCount,
+			payload.OutputImageCount,
 			microYuanToRMB(payload.CostMicroYuan),
 			payload.OccurredAt,
 			payload.OccurredAt,
@@ -641,31 +807,41 @@ func (s *Service) processBillingUsageEvent(ctx context.Context, streamID string,
 
 func parseBillingUsageEventPayload(streamID string, values map[string]any) (billingUsageEventPayload, error) {
 	payload := billingUsageEventPayload{
-		EventID:                strings.TrimSpace(stringifyAny(values["event_id"])),
-		RequestID:              strings.TrimSpace(stringifyAny(values["request_id"])),
-		TraceID:                strings.TrimSpace(stringifyAny(values["trace_id"])),
-		ConsumerName:           model.NormalizeUsername(stringifyAny(values["consumer_name"])),
-		RouteName:              strings.TrimSpace(stringifyAny(values["route_name"])),
-		RequestPath:            strings.TrimSpace(stringifyAny(values["request_path"])),
-		RequestKind:            strings.TrimSpace(stringifyAny(values["request_kind"])),
-		APIKeyID:               strings.TrimSpace(stringifyAny(values["api_key_id"])),
-		ModelID:                strings.TrimSpace(stringifyAny(values["model_id"])),
-		RequestStatus:          strings.TrimSpace(stringifyAny(values["request_status"])),
-		UsageStatus:            strings.TrimSpace(stringifyAny(values["usage_status"])),
-		HTTPStatus:             int(parseInt64Any(values["http_status"])),
-		ErrorCode:              strings.TrimSpace(stringifyAny(values["error_code"])),
-		ErrorMessage:           strings.TrimSpace(stringifyAny(values["error_message"])),
-		InputTokens:            parseInt64Any(values["input_tokens"]),
-		OutputTokens:           parseInt64Any(values["output_tokens"]),
-		TotalTokens:            parseInt64Any(values["total_tokens"]),
-		InputTokenDetailsJSON:  strings.TrimSpace(stringifyAny(values["input_token_details_json"])),
-		OutputTokenDetailsJSON: strings.TrimSpace(stringifyAny(values["output_token_details_json"])),
-		ProviderUsageJSON:      strings.TrimSpace(stringifyAny(values["provider_usage_json"])),
-		CostMicroYuan:          parseInt64Any(values["cost_micro_yuan"]),
-		PriceVersionID:         parseInt64Any(values["price_version_id"]),
-		StartedAt:              parseTimeAny(values["started_at"]),
-		FinishedAt:             parseTimeAny(values["finished_at"]),
-		OccurredAt:             parseTimeAny(values["occurred_at"]),
+		EventID:                    strings.TrimSpace(stringifyAny(values["event_id"])),
+		RequestID:                  strings.TrimSpace(stringifyAny(values["request_id"])),
+		TraceID:                    strings.TrimSpace(stringifyAny(values["trace_id"])),
+		ConsumerName:               model.NormalizeUsername(stringifyAny(values["consumer_name"])),
+		RouteName:                  strings.TrimSpace(stringifyAny(values["route_name"])),
+		RequestPath:                strings.TrimSpace(stringifyAny(values["request_path"])),
+		RequestKind:                strings.TrimSpace(stringifyAny(values["request_kind"])),
+		APIKeyID:                   strings.TrimSpace(stringifyAny(values["api_key_id"])),
+		ModelID:                    strings.TrimSpace(stringifyAny(values["model_id"])),
+		RequestStatus:              strings.TrimSpace(stringifyAny(values["request_status"])),
+		UsageStatus:                strings.TrimSpace(stringifyAny(values["usage_status"])),
+		HTTPStatus:                 int(parseInt64Any(values["http_status"])),
+		ErrorCode:                  strings.TrimSpace(stringifyAny(values["error_code"])),
+		ErrorMessage:               strings.TrimSpace(stringifyAny(values["error_message"])),
+		InputTokens:                parseInt64Any(values["input_tokens"]),
+		OutputTokens:               parseInt64Any(values["output_tokens"]),
+		TotalTokens:                parseInt64Any(values["total_tokens"]),
+		CacheCreationInputTokens:   parseInt64Any(values["cache_creation_input_tokens"]),
+		CacheCreation5mInputTokens: parseInt64Any(values["cache_creation_5m_input_tokens"]),
+		CacheCreation1hInputTokens: parseInt64Any(values["cache_creation_1h_input_tokens"]),
+		CacheReadInputTokens:       parseInt64Any(values["cache_read_input_tokens"]),
+		InputImageTokens:           parseInt64Any(values["input_image_tokens"]),
+		OutputImageTokens:          parseInt64Any(values["output_image_tokens"]),
+		InputImageCount:            parseInt64Any(values["input_image_count"]),
+		OutputImageCount:           parseInt64Any(values["output_image_count"]),
+		RequestCount:               parseInt64Any(values["request_count"]),
+		CacheTTL:                   strings.TrimSpace(stringifyAny(values["cache_ttl"])),
+		InputTokenDetailsJSON:      strings.TrimSpace(stringifyAny(values["input_token_details_json"])),
+		OutputTokenDetailsJSON:     strings.TrimSpace(stringifyAny(values["output_token_details_json"])),
+		ProviderUsageJSON:          strings.TrimSpace(stringifyAny(values["provider_usage_json"])),
+		CostMicroYuan:              parseInt64Any(values["cost_micro_yuan"]),
+		PriceVersionID:             parseInt64Any(values["price_version_id"]),
+		StartedAt:                  parseTimeAny(values["started_at"]),
+		FinishedAt:                 parseTimeAny(values["finished_at"]),
+		OccurredAt:                 parseTimeAny(values["occurred_at"]),
 	}
 	if payload.EventID == "" {
 		payload.EventID = strings.TrimSpace(streamID)
@@ -684,7 +860,13 @@ func parseBillingUsageEventPayload(streamID string, values map[string]any) (bill
 		}
 	}
 	if payload.TotalTokens == 0 {
-		payload.TotalTokens = payload.InputTokens + payload.OutputTokens
+		payload.TotalTokens = payload.InputTokens + payload.OutputTokens + maxInt64(payload.CacheCreationInputTokens,
+			payload.CacheCreation5mInputTokens+payload.CacheCreation1hInputTokens) + payload.CacheReadInputTokens +
+			payload.InputImageTokens + payload.OutputImageTokens
+	}
+	if payload.RequestCount == 0 && strings.EqualFold(payload.RequestStatus, "success") &&
+		strings.EqualFold(payload.UsageStatus, "parsed") {
+		payload.RequestCount = 1
 	}
 	if payload.TraceID == "" {
 		payload.TraceID = payload.RequestID
@@ -788,4 +970,11 @@ func nullIfEmpty(value string) any {
 		return nil
 	}
 	return value
+}
+
+func maxInt64(left int64, right int64) int64 {
+	if left >= right {
+		return left
+	}
+	return right
 }

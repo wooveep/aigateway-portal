@@ -76,6 +76,7 @@ import {
   updateInvoiceProfile,
 } from '../api';
 import type { InvoiceProfile, InvoiceRecord } from '../types';
+import { formatDateTimeDisplay } from '../utils/time';
 import { message } from 'ant-design-vue';
 import type { TableColumnsType } from 'ant-design-vue';
 import { onMounted, reactive, ref } from 'vue';
@@ -105,7 +106,11 @@ const invoiceColumns: TableColumnsType<InvoiceRecord> = [
     customRender: ({ value }) => `¥${Number(value).toFixed(2)}`,
   },
   { title: '状态', dataIndex: 'status' },
-  { title: '申请时间', dataIndex: 'createdAt' },
+  {
+    title: '申请时间',
+    dataIndex: 'createdAt',
+    customRender: ({ value }) => formatDateTimeDisplay(String(value ?? '')),
+  },
   { title: '备注', dataIndex: 'remark' },
 ];
 

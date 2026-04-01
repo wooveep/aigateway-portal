@@ -50,7 +50,7 @@ func Load() Config {
 		MySQLUser:                    getEnv("PORTAL_MYSQL_USER", "root"),
 		MySQLPassword:                getEnv("PORTAL_MYSQL_PASSWORD", "root"),
 		MySQLDatabase:                getEnv("PORTAL_MYSQL_DATABASE", "aigateway_portal"),
-		MySQLParams:                  getEnv("PORTAL_MYSQL_PARAMS", "parseTime=true&charset=utf8mb4&loc=Local"),
+		MySQLParams:                  getEnv("PORTAL_MYSQL_PARAMS", "parseTime=true&charset=utf8mb4&loc=UTC"),
 		K8sNamespace:                 firstNonEmptyEnv("PORTAL_K8S_NAMESPACE", "POD_NAMESPACE"),
 		KubeConfigPath:               firstNonEmptyEnv("PORTAL_K8S_KUBECONFIG", "KUBECONFIG"),
 		SessionCookieName:            getEnv("PORTAL_SESSION_COOKIE_NAME", "aigateway_portal_session"),
@@ -161,7 +161,7 @@ func parseMySQLJDBCURL(raw string) (host string, port string, database string, p
 }
 
 func ensureGoMySQLParams(raw string) string {
-	const defaultParams = "parseTime=true&charset=utf8mb4&loc=Local"
+	const defaultParams = "parseTime=true&charset=utf8mb4&loc=UTC"
 	if strings.TrimSpace(raw) == "" {
 		return defaultParams
 	}

@@ -161,6 +161,14 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			request_count BIGINT NOT NULL DEFAULT 0,
 			input_tokens BIGINT NOT NULL DEFAULT 0,
 			output_tokens BIGINT NOT NULL DEFAULT 0,
+			cache_creation_input_tokens BIGINT NOT NULL DEFAULT 0,
+			cache_creation_5m_input_tokens BIGINT NOT NULL DEFAULT 0,
+			cache_creation_1h_input_tokens BIGINT NOT NULL DEFAULT 0,
+			cache_read_input_tokens BIGINT NOT NULL DEFAULT 0,
+			input_image_tokens BIGINT NOT NULL DEFAULT 0,
+			output_image_tokens BIGINT NOT NULL DEFAULT 0,
+			input_image_count BIGINT NOT NULL DEFAULT 0,
+			output_image_count BIGINT NOT NULL DEFAULT 0,
 			total_tokens BIGINT NOT NULL DEFAULT 0,
 			cost_amount DECIMAL(18,6) NOT NULL DEFAULT 0,
 			source_from DATETIME NULL,
@@ -228,6 +236,15 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			price_version_id BIGINT NULL,
 			input_tokens BIGINT NOT NULL DEFAULT 0,
 			output_tokens BIGINT NOT NULL DEFAULT 0,
+			cache_creation_input_tokens BIGINT NOT NULL DEFAULT 0,
+			cache_creation_5m_input_tokens BIGINT NOT NULL DEFAULT 0,
+			cache_creation_1h_input_tokens BIGINT NOT NULL DEFAULT 0,
+			cache_read_input_tokens BIGINT NOT NULL DEFAULT 0,
+			input_image_tokens BIGINT NOT NULL DEFAULT 0,
+			output_image_tokens BIGINT NOT NULL DEFAULT 0,
+			input_image_count BIGINT NOT NULL DEFAULT 0,
+			output_image_count BIGINT NOT NULL DEFAULT 0,
+			request_count BIGINT NOT NULL DEFAULT 0,
 			occurred_at DATETIME NOT NULL,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE KEY uk_billing_transaction_source (source_type, source_id),
@@ -252,6 +269,16 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			error_message VARCHAR(512) NOT NULL DEFAULT '',
 			input_tokens BIGINT NOT NULL DEFAULT 0,
 			output_tokens BIGINT NOT NULL DEFAULT 0,
+			cache_creation_input_tokens BIGINT NOT NULL DEFAULT 0,
+			cache_creation_5m_input_tokens BIGINT NOT NULL DEFAULT 0,
+			cache_creation_1h_input_tokens BIGINT NOT NULL DEFAULT 0,
+			cache_read_input_tokens BIGINT NOT NULL DEFAULT 0,
+			input_image_tokens BIGINT NOT NULL DEFAULT 0,
+			output_image_tokens BIGINT NOT NULL DEFAULT 0,
+			input_image_count BIGINT NOT NULL DEFAULT 0,
+			output_image_count BIGINT NOT NULL DEFAULT 0,
+			request_count BIGINT NOT NULL DEFAULT 0,
+			cache_ttl VARCHAR(8) NOT NULL DEFAULT '',
 			total_tokens BIGINT NOT NULL DEFAULT 0,
 			input_token_details_json TEXT NULL,
 			output_token_details_json TEXT NULL,
@@ -299,6 +326,19 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			currency VARCHAR(8) NOT NULL DEFAULT 'CNY',
 			input_price_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0,
 			output_price_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			input_request_price_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			cache_creation_input_token_price_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			cache_creation_input_token_price_above_1hr_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			cache_read_input_token_price_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			input_token_price_above_200k_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			output_token_price_above_200k_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			cache_creation_input_token_price_above_200k_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			cache_read_input_token_price_above_200k_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			output_image_price_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			output_image_token_price_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			input_image_price_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			input_image_token_price_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0,
+			supports_prompt_caching TINYINT(1) NOT NULL DEFAULT 0,
 			effective_from DATETIME NOT NULL,
 			effective_to DATETIME NULL,
 			status VARCHAR(16) NOT NULL DEFAULT 'active',
@@ -324,6 +364,12 @@ func (s *Service) runMigrations(ctx context.Context) error {
 		return err
 	}
 	if err := s.ensureBillingUsageEventColumns(ctx); err != nil {
+		return err
+	}
+	if err := s.ensurePortalUsageDailyColumns(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureBillingModelPriceColumns(ctx); err != nil {
 		return err
 	}
 	return nil
@@ -380,8 +426,36 @@ func (s *Service) ensurePortalAPIKeyColumns(ctx context.Context) error {
 }
 
 func (s *Service) ensureBillingTransactionColumns(ctx context.Context) error {
-	return s.ensureTableColumn(ctx, "billing_transaction", "api_key_id",
-		`ALTER TABLE billing_transaction ADD COLUMN api_key_id VARCHAR(64) NULL AFTER request_id`)
+	changes := []struct {
+		column string
+		sql    string
+	}{
+		{"api_key_id", `ALTER TABLE billing_transaction ADD COLUMN api_key_id VARCHAR(64) NULL AFTER request_id`},
+		{"cache_creation_input_tokens",
+			`ALTER TABLE billing_transaction ADD COLUMN cache_creation_input_tokens BIGINT NOT NULL DEFAULT 0 AFTER output_tokens`},
+		{"cache_creation_5m_input_tokens",
+			`ALTER TABLE billing_transaction ADD COLUMN cache_creation_5m_input_tokens BIGINT NOT NULL DEFAULT 0 AFTER cache_creation_input_tokens`},
+		{"cache_creation_1h_input_tokens",
+			`ALTER TABLE billing_transaction ADD COLUMN cache_creation_1h_input_tokens BIGINT NOT NULL DEFAULT 0 AFTER cache_creation_5m_input_tokens`},
+		{"cache_read_input_tokens",
+			`ALTER TABLE billing_transaction ADD COLUMN cache_read_input_tokens BIGINT NOT NULL DEFAULT 0 AFTER cache_creation_1h_input_tokens`},
+		{"input_image_tokens",
+			`ALTER TABLE billing_transaction ADD COLUMN input_image_tokens BIGINT NOT NULL DEFAULT 0 AFTER cache_read_input_tokens`},
+		{"output_image_tokens",
+			`ALTER TABLE billing_transaction ADD COLUMN output_image_tokens BIGINT NOT NULL DEFAULT 0 AFTER input_image_tokens`},
+		{"input_image_count",
+			`ALTER TABLE billing_transaction ADD COLUMN input_image_count BIGINT NOT NULL DEFAULT 0 AFTER output_image_tokens`},
+		{"output_image_count",
+			`ALTER TABLE billing_transaction ADD COLUMN output_image_count BIGINT NOT NULL DEFAULT 0 AFTER input_image_count`},
+		{"request_count",
+			`ALTER TABLE billing_transaction ADD COLUMN request_count BIGINT NOT NULL DEFAULT 0 AFTER output_image_count`},
+	}
+	for _, item := range changes {
+		if err := s.ensureTableColumn(ctx, "billing_transaction", item.column, item.sql); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) ensureBillingUsageEventColumns(ctx context.Context) error {
@@ -410,11 +484,101 @@ func (s *Service) ensureBillingUsageEventColumns(ctx context.Context) error {
 			`ALTER TABLE billing_usage_event ADD COLUMN output_token_details_json TEXT NULL AFTER input_token_details_json`},
 		{"provider_usage_json",
 			`ALTER TABLE billing_usage_event ADD COLUMN provider_usage_json TEXT NULL AFTER output_token_details_json`},
+		{"cache_creation_input_tokens",
+			`ALTER TABLE billing_usage_event ADD COLUMN cache_creation_input_tokens BIGINT NOT NULL DEFAULT 0 AFTER output_tokens`},
+		{"cache_creation_5m_input_tokens",
+			`ALTER TABLE billing_usage_event ADD COLUMN cache_creation_5m_input_tokens BIGINT NOT NULL DEFAULT 0 AFTER cache_creation_input_tokens`},
+		{"cache_creation_1h_input_tokens",
+			`ALTER TABLE billing_usage_event ADD COLUMN cache_creation_1h_input_tokens BIGINT NOT NULL DEFAULT 0 AFTER cache_creation_5m_input_tokens`},
+		{"cache_read_input_tokens",
+			`ALTER TABLE billing_usage_event ADD COLUMN cache_read_input_tokens BIGINT NOT NULL DEFAULT 0 AFTER cache_creation_1h_input_tokens`},
+		{"input_image_tokens",
+			`ALTER TABLE billing_usage_event ADD COLUMN input_image_tokens BIGINT NOT NULL DEFAULT 0 AFTER cache_read_input_tokens`},
+		{"output_image_tokens",
+			`ALTER TABLE billing_usage_event ADD COLUMN output_image_tokens BIGINT NOT NULL DEFAULT 0 AFTER input_image_tokens`},
+		{"input_image_count",
+			`ALTER TABLE billing_usage_event ADD COLUMN input_image_count BIGINT NOT NULL DEFAULT 0 AFTER output_image_tokens`},
+		{"output_image_count",
+			`ALTER TABLE billing_usage_event ADD COLUMN output_image_count BIGINT NOT NULL DEFAULT 0 AFTER input_image_count`},
+		{"request_count",
+			`ALTER TABLE billing_usage_event ADD COLUMN request_count BIGINT NOT NULL DEFAULT 0 AFTER output_image_count`},
+		{"cache_ttl",
+			`ALTER TABLE billing_usage_event ADD COLUMN cache_ttl VARCHAR(8) NOT NULL DEFAULT '' AFTER request_count`},
 		{"started_at", `ALTER TABLE billing_usage_event ADD COLUMN started_at DATETIME NULL AFTER price_version_id`},
 		{"finished_at", `ALTER TABLE billing_usage_event ADD COLUMN finished_at DATETIME NULL AFTER started_at`},
 	}
 	for _, item := range changes {
 		if err := s.ensureTableColumn(ctx, "billing_usage_event", item.column, item.sql); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) ensurePortalUsageDailyColumns(ctx context.Context) error {
+	changes := []struct {
+		column string
+		sql    string
+	}{
+		{"cache_creation_input_tokens",
+			`ALTER TABLE portal_usage_daily ADD COLUMN cache_creation_input_tokens BIGINT NOT NULL DEFAULT 0 AFTER output_tokens`},
+		{"cache_creation_5m_input_tokens",
+			`ALTER TABLE portal_usage_daily ADD COLUMN cache_creation_5m_input_tokens BIGINT NOT NULL DEFAULT 0 AFTER cache_creation_input_tokens`},
+		{"cache_creation_1h_input_tokens",
+			`ALTER TABLE portal_usage_daily ADD COLUMN cache_creation_1h_input_tokens BIGINT NOT NULL DEFAULT 0 AFTER cache_creation_5m_input_tokens`},
+		{"cache_read_input_tokens",
+			`ALTER TABLE portal_usage_daily ADD COLUMN cache_read_input_tokens BIGINT NOT NULL DEFAULT 0 AFTER cache_creation_1h_input_tokens`},
+		{"input_image_tokens",
+			`ALTER TABLE portal_usage_daily ADD COLUMN input_image_tokens BIGINT NOT NULL DEFAULT 0 AFTER cache_read_input_tokens`},
+		{"output_image_tokens",
+			`ALTER TABLE portal_usage_daily ADD COLUMN output_image_tokens BIGINT NOT NULL DEFAULT 0 AFTER input_image_tokens`},
+		{"input_image_count",
+			`ALTER TABLE portal_usage_daily ADD COLUMN input_image_count BIGINT NOT NULL DEFAULT 0 AFTER output_image_tokens`},
+		{"output_image_count",
+			`ALTER TABLE portal_usage_daily ADD COLUMN output_image_count BIGINT NOT NULL DEFAULT 0 AFTER input_image_count`},
+	}
+	for _, item := range changes {
+		if err := s.ensureTableColumn(ctx, "portal_usage_daily", item.column, item.sql); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) ensureBillingModelPriceColumns(ctx context.Context) error {
+	changes := []struct {
+		column string
+		sql    string
+	}{
+		{"input_request_price_micro_yuan",
+			`ALTER TABLE billing_model_price_version ADD COLUMN input_request_price_micro_yuan BIGINT NOT NULL DEFAULT 0 AFTER output_price_per_1k_micro_yuan`},
+		{"cache_creation_input_token_price_per_1k_micro_yuan",
+			`ALTER TABLE billing_model_price_version ADD COLUMN cache_creation_input_token_price_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0 AFTER input_request_price_micro_yuan`},
+		{"cache_creation_input_token_price_above_1hr_per_1k_micro_yuan",
+			`ALTER TABLE billing_model_price_version ADD COLUMN cache_creation_input_token_price_above_1hr_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0 AFTER cache_creation_input_token_price_per_1k_micro_yuan`},
+		{"cache_read_input_token_price_per_1k_micro_yuan",
+			`ALTER TABLE billing_model_price_version ADD COLUMN cache_read_input_token_price_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0 AFTER cache_creation_input_token_price_above_1hr_per_1k_micro_yuan`},
+		{"input_token_price_above_200k_per_1k_micro_yuan",
+			`ALTER TABLE billing_model_price_version ADD COLUMN input_token_price_above_200k_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0 AFTER cache_read_input_token_price_per_1k_micro_yuan`},
+		{"output_token_price_above_200k_per_1k_micro_yuan",
+			`ALTER TABLE billing_model_price_version ADD COLUMN output_token_price_above_200k_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0 AFTER input_token_price_above_200k_per_1k_micro_yuan`},
+		{"cache_creation_input_token_price_above_200k_per_1k_micro_yuan",
+			`ALTER TABLE billing_model_price_version ADD COLUMN cache_creation_input_token_price_above_200k_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0 AFTER output_token_price_above_200k_per_1k_micro_yuan`},
+		{"cache_read_input_token_price_above_200k_per_1k_micro_yuan",
+			`ALTER TABLE billing_model_price_version ADD COLUMN cache_read_input_token_price_above_200k_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0 AFTER cache_creation_input_token_price_above_200k_per_1k_micro_yuan`},
+		{"output_image_price_micro_yuan",
+			`ALTER TABLE billing_model_price_version ADD COLUMN output_image_price_micro_yuan BIGINT NOT NULL DEFAULT 0 AFTER cache_read_input_token_price_above_200k_per_1k_micro_yuan`},
+		{"output_image_token_price_per_1k_micro_yuan",
+			`ALTER TABLE billing_model_price_version ADD COLUMN output_image_token_price_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0 AFTER output_image_price_micro_yuan`},
+		{"input_image_price_micro_yuan",
+			`ALTER TABLE billing_model_price_version ADD COLUMN input_image_price_micro_yuan BIGINT NOT NULL DEFAULT 0 AFTER output_image_token_price_per_1k_micro_yuan`},
+		{"input_image_token_price_per_1k_micro_yuan",
+			`ALTER TABLE billing_model_price_version ADD COLUMN input_image_token_price_per_1k_micro_yuan BIGINT NOT NULL DEFAULT 0 AFTER input_image_price_micro_yuan`},
+		{"supports_prompt_caching",
+			`ALTER TABLE billing_model_price_version ADD COLUMN supports_prompt_caching TINYINT(1) NOT NULL DEFAULT 0 AFTER input_image_token_price_per_1k_micro_yuan`},
+	}
+	for _, item := range changes {
+		if err := s.ensureTableColumn(ctx, "billing_model_price_version", item.column, item.sql); err != nil {
 			return err
 		}
 	}

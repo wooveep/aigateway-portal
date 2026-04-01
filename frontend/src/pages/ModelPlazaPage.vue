@@ -8,7 +8,7 @@
             <p><strong>能力：</strong>{{ buildCapabilityText(item) }}</p>
             <p><strong>标签：</strong>{{ item.tags?.length ? item.tags.join(' / ') : '-' }}</p>
             <p><strong>价格：</strong>{{ buildPricingText(item) }}</p>
-            <p><strong>更新时间：</strong>{{ item.updatedAt }}</p>
+            <p><strong>更新时间：</strong>{{ formatDateDisplay(item.updatedAt) }}</p>
             <a-button type="link" @click="showDetail(item.id)">查看模型详情</a-button>
           </a-card>
         </a-col>
@@ -45,6 +45,7 @@
 <script setup lang="ts">
 import { fetchModelDetail, fetchModels } from '../api';
 import type { ModelInfo } from '../types';
+import { formatDateDisplay } from '../utils/time';
 import { message } from 'ant-design-vue';
 import { onMounted, ref } from 'vue';
 

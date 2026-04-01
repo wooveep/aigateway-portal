@@ -91,6 +91,7 @@ import {
   updateApiKeyStatus,
 } from '../api';
 import type { ApiKeyRecord, CostDetailRecord, OpenStats } from '../types';
+import { dateTimeLocalInputToISOString, formatDateTimeDisplay, toDateTimeLocalInputValue } from '../utils/time';
 import { message } from 'ant-design-vue';
 import type { TableColumnsType } from 'ant-design-vue';
 import { computed, onMounted, reactive, ref } from 'vue';
@@ -133,9 +134,21 @@ const getErrorMessage = (error: unknown, fallback: string) => {
 const keyColumns: TableColumnsType<ApiKeyRecord> = [
   { title: 'Key 名称', dataIndex: 'name' },
   { title: 'API Key', dataIndex: 'key' },
-  { title: '创建时间', dataIndex: 'createdAt' },
-  { title: '过期时间', dataIndex: 'expiresAt' },
-  { title: '最近调用', dataIndex: 'lastUsed' },
+  {
+    title: '创建时间',
+    dataIndex: 'createdAt',
+    customRender: ({ value }) => formatDateTimeDisplay(String(value ?? '')),
+  },
+  {
+    title: '过期时间',
+    dataIndex: 'expiresAt',
+    customRender: ({ value }) => formatDateTimeDisplay(String(value ?? '')),
+  },
+  {
+    title: '最近调用',
+    dataIndex: 'lastUsed',
+    customRender: ({ value }) => formatDateTimeDisplay(String(value ?? '')),
+  },
   { title: '调用次数', dataIndex: 'totalCalls' },
   {
     title: '金额限额',
@@ -222,7 +235,7 @@ const copyAllKeys = async () => {
 const openEditModal = (record: ApiKeyRecord) => {
   editingKeyId.value = record.id;
   keyForm.name = record.name;
-  keyForm.expiresAt = record.expiresAt === '-' ? '' : record.expiresAt.replace(' ', 'T').slice(0, 16);
+  keyForm.expiresAt = toDateTimeLocalInputValue(record.expiresAt);
   keyForm.limitTotal = record.limitTotal;
   keyForm.limit5h = record.limit5h;
   keyForm.limitDaily = record.limitDaily;
@@ -242,7 +255,7 @@ const submitKey = async () => {
   try {
     const payload = {
       name: keyForm.name.trim(),
-      expiresAt: keyForm.expiresAt || undefined,
+      expiresAt: dateTimeLocalInputToISOString(keyForm.expiresAt),
       limitTotal: keyForm.limitTotal,
       limit5h: keyForm.limit5h,
       limitDaily: keyForm.limitDaily,

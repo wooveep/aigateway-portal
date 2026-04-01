@@ -62,8 +62,8 @@ func (s *Service) syncKeyAuthConsumers(ctx context.Context) error {
 		FROM portal_api_key
 		WHERE status = 'active'
 		  AND deleted_at IS NULL
-		  AND (expires_at IS NULL OR expires_at > NOW())
-		ORDER BY consumer_name ASC, id ASC`)
+		  AND (expires_at IS NULL OR expires_at > ?)
+		ORDER BY consumer_name ASC, id ASC`, model.NowInAppLocation())
 	if err != nil {
 		return gerror.Wrap(err, "query active api keys failed")
 	}

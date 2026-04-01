@@ -426,8 +426,8 @@ func (s *Service) ensureHasAnotherUsableAPIKey(ctx context.Context, consumerName
 		WHERE consumer_name = ?
 		  AND deleted_at IS NULL
 		  AND status = 'active'
-		  AND (expires_at IS NULL OR expires_at > NOW())
-		  AND key_id <> ?`, consumerName, excludedKeyID)
+		  AND (expires_at IS NULL OR expires_at > ?)
+		  AND key_id <> ?`, consumerName, model.NowInAppLocation(), excludedKeyID)
 	if err != nil {
 		return gerror.Wrap(err, "query usable api keys failed")
 	}
@@ -466,21 +466,9 @@ func defaultDailyResetTime(value string) string {
 }
 
 func parseOptionalDateTime(value string) (*time.Time, error) {
-	raw := strings.TrimSpace(value)
-	if raw == "" {
-		return nil, nil
+	parsed, err := model.ParseDateTime(value)
+	if err != nil {
+		return nil, gerror.New(err.Error())
 	}
-	layouts := []string{
-		time.RFC3339Nano,
-		time.RFC3339,
-		"2006-01-02 15:04:05",
-		"2006-01-02T15:04",
-		"2006-01-02",
-	}
-	for _, layout := range layouts {
-		if parsed, err := time.ParseInLocation(layout, raw, time.Local); err == nil {
-			return &parsed, nil
-		}
-	}
-	return nil, gerror.New("unsupported datetime format")
+	return parsed, nil
 }

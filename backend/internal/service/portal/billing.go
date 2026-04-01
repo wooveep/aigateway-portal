@@ -109,7 +109,7 @@ func (s *Service) CreateRecharge(ctx context.Context, consumerName string, req m
 		return model.RechargeRecord{}, apperr.New(403, "administrator wallet is not supported")
 	}
 
-	now := time.Now()
+	now := model.NowInAppLocation()
 	orderID := fmt.Sprintf("RC%d", time.Now().UnixMilli())
 	amountMicroYuan := rmbToMicroYuan(req.Amount)
 	err := s.db.Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {

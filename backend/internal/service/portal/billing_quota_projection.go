@@ -8,6 +8,8 @@ import (
 
 	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/redis/go-redis/v9"
+
+	"higress-portal-backend/internal/model"
 )
 
 const (
@@ -90,8 +92,8 @@ func (s *Service) loadKeyQuotaPolicyProjections(ctx context.Context) ([]keyQuota
 		FROM portal_api_key
 		WHERE deleted_at IS NULL
 		  AND status = 'active'
-		  AND (expires_at IS NULL OR expires_at > NOW())
-		  AND LOWER(TRIM(consumer_name)) <> 'administrator'`)
+		  AND (expires_at IS NULL OR expires_at > ?)
+		  AND LOWER(TRIM(consumer_name)) <> 'administrator'`, model.NowInAppLocation())
 	if err != nil {
 		return nil, err
 	}
@@ -336,7 +338,7 @@ func billingUsageWindowKey(prefix string, window string, target string) string {
 }
 
 func billingQuotaLocation() *time.Location {
-	return time.FixedZone("Asia/Shanghai", 8*60*60)
+	return model.AppLocation()
 }
 
 func billingDayStart(now time.Time) time.Time {

@@ -1,35 +1,87 @@
 package portal
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
-func TestParseBillingUsageEventPayload(t *testing.T) {
-	occurredAt := time.Date(2026, time.March, 25, 11, 12, 13, 0, time.UTC)
-	payload, err := parseBillingUsageEventPayload("1-0", map[string]any{
-		"event_id":         "evt-1",
-		"request_id":       "req-1",
-		"consumer_name":    "consumer-a",
-		"route_name":       "route-a",
-		"api_key_id":       "KEY123",
-		"model_id":         "qwen-plus",
-		"input_tokens":     "120",
-		"output_tokens":    "80",
-		"cost_micro_yuan":  "308",
-		"price_version_id": "9",
-		"occurred_at":      occurredAt.Format(time.RFC3339Nano),
-	})
-	if err != nil {
-		t.Fatalf("parse billing usage event payload failed: %v", err)
+func TestBillingUsageEventInsertSQLPlaceholderCount(t *testing.T) {
+	if got, want := strings.Count(billingUsageEventInsertSQL, "?"), 36; got != want {
+		t.Fatalf("billingUsageEventInsertSQL placeholder count = %d, want %d", got, want)
 	}
-	if payload.APIKeyID != "KEY123" {
-		t.Fatalf("unexpected api key id: %s", payload.APIKeyID)
+}
+
+func TestBillingUsageEventInsertArgsPreserveEmptyCacheTTL(t *testing.T) {
+	args := billingUsageEventInsertArgs(billingUsageEventPayload{
+		EventID:       "event-1",
+		RequestID:     "request-1",
+		ConsumerName:  "alice",
+		RouteName:     "route-a",
+		RequestPath:   "/v1/chat/completions",
+		RequestKind:   "chat.completions",
+		ModelID:       "qwen-plus",
+		RequestStatus: "success",
+		UsageStatus:   "parsed",
+		HTTPStatus:    200,
+		CacheTTL:      "",
+		OccurredAt:    time.Now().UTC(),
+	}, "stream-1")
+
+	if got, want := len(args), 36; got != want {
+		t.Fatalf("billingUsageEventInsertArgs len = %d, want %d", got, want)
 	}
-	if payload.TotalTokens != 200 {
-		t.Fatalf("unexpected total tokens: %d", payload.TotalTokens)
+	if got, ok := args[26].(string); !ok || got != "" {
+		t.Fatalf("billingUsageEventInsertArgs cache_ttl arg = %#v, want empty string", args[26])
 	}
-	if !payload.OccurredAt.Equal(occurredAt) {
-		t.Fatalf("unexpected occurred at: %s", payload.OccurredAt)
-	}
+}
+
+func TestEnsureBillingUsageConsumerGroupRestoresAfterRedisFlush(t *testing.T) {
+	redisServer, err := miniredis.Run()
+	require.NoError(t, err)
+	defer redisServer.Close()
+
+	client := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	defer client.Close()
+
+	ctx := context.Background()
+	stream := "billing:test:usage"
+
+	require.NoError(t, ensureBillingUsageConsumerGroup(ctx, client, stream))
+
+	require.NoError(t, client.XAdd(ctx, &redis.XAddArgs{
+		Stream: stream,
+		Values: map[string]any{"request_id": "before-flush"},
+	}).Err())
+
+	redisServer.FlushAll()
+
+	require.NoError(t, client.XAdd(ctx, &redis.XAddArgs{
+		Stream: stream,
+		Values: map[string]any{"request_id": "after-flush"},
+	}).Err())
+
+	require.NoError(t, ensureBillingUsageConsumerGroup(ctx, client, stream))
+
+	groups, err := client.XInfoGroups(ctx, stream).Result()
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	require.Equal(t, billingConsumerGroup, groups[0].Name)
+	require.EqualValues(t, 0, groups[0].Pending)
+
+	streams, err := client.XReadGroup(ctx, &redis.XReadGroupArgs{
+		Group:    billingConsumerGroup,
+		Consumer: "test-node",
+		Streams:  []string{stream, ">"},
+		Count:    10,
+	}).Result()
+	require.NoError(t, err)
+	require.Len(t, streams, 1)
+	require.Len(t, streams[0].Messages, 1)
+	require.Equal(t, "after-flush", streams[0].Messages[0].Values["request_id"])
 }
