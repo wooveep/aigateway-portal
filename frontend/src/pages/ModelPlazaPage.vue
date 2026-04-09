@@ -22,6 +22,9 @@
           <a-descriptions-item label="厂商">{{ selectedModel.vendor }}</a-descriptions-item>
           <a-descriptions-item label="能力">{{ buildCapabilityText(selectedModel) }}</a-descriptions-item>
           <a-descriptions-item label="标签">{{ selectedModel.tags?.length ? selectedModel.tags.join(' / ') : '-' }}</a-descriptions-item>
+          <a-descriptions-item label="请求类型">
+            {{ selectedModel.capabilities?.requestKinds?.length ? selectedModel.capabilities.requestKinds.join(' / ') : '-' }}
+          </a-descriptions-item>
           <a-descriptions-item label="输入 Token 单价">{{ buildInputPriceText(selectedModel) }}</a-descriptions-item>
           <a-descriptions-item label="输出 Token 单价">{{ buildOutputPriceText(selectedModel) }}</a-descriptions-item>
           <a-descriptions-item label="RPM 限制">{{ selectedModel.limits?.rpm ?? '-' }}</a-descriptions-item>
@@ -60,7 +63,8 @@ const joinText = (items?: string[]) => {
 const buildCapabilityText = (model: ModelInfo) => {
   const modalities = joinText(model.capabilities?.modalities);
   const features = joinText(model.capabilities?.features);
-  return [modalities, features].filter(Boolean).join(' | ') || model.capability || '-';
+  const requestKinds = joinText(model.capabilities?.requestKinds);
+  return [modalities, features, requestKinds].filter(Boolean).join(' | ') || model.capability || '-';
 };
 
 const buildInputPriceText = (model: ModelInfo) => {

@@ -1,5 +1,23 @@
 <template>
   <div>
+    <a-card v-if="hasManagedAccounts" title="当前开放平台范围">
+      <a-space direction="vertical" style="width: 100%">
+        <a-select
+          :value="selectedConsumerName"
+          :options="scopeOptions"
+          :loading="loadingManagedAccounts"
+          style="width: 100%"
+          @change="onScopeChange"
+        />
+        <a-alert
+          type="info"
+          show-icon
+          :message="`当前正在管理：${currentScopeTitle}`"
+          description="切换账号后，当前页面会展示对应子账号的 API Key、调用统计与费用明细。"
+        />
+      </a-space>
+    </a-card>
+
     <a-row :gutter="16">
       <a-col :xs="24" :md="6">
         <a-card><a-statistic title="今日调用量" :value="stats.todayCalls" /></a-card>
@@ -46,6 +64,16 @@
       <a-table :columns="costColumns" :data-source="costDetails" row-key="id" :pagination="{ pageSize: 5 }" />
     </a-card>
 
+    <a-card title="请求明细" class="portal-card">
+      <a-table
+        :columns="requestDetailColumns"
+        :data-source="requestDetails"
+        row-key="eventId"
+        :pagination="{ pageSize: 10 }"
+        :loading="loading"
+      />
+    </a-card>
+
     <a-modal v-model:open="showCreateModal" :title="modalTitle" @ok="submitKey" :confirm-loading="loading">
       <a-form layout="vertical">
         <a-form-item label="Key 名称" required>
@@ -86,15 +114,17 @@ import {
   fetchApiKeys,
   fetchCostDetails,
   fetchOpenStats,
+  fetchRequestDetails,
   removeApiKey,
   updateApiKey,
   updateApiKeyStatus,
 } from '../api';
-import type { ApiKeyRecord, CostDetailRecord, OpenStats } from '../types';
+import { useManagedAccountScope } from '../composables/useManagedAccountScope';
+import type { ApiKeyRecord, CostDetailRecord, OpenStats, RequestDetailRecord } from '../types';
 import { dateTimeLocalInputToISOString, formatDateTimeDisplay, toDateTimeLocalInputValue } from '../utils/time';
 import { message } from 'ant-design-vue';
 import type { TableColumnsType } from 'ant-design-vue';
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 
 const stats = reactive<OpenStats>({
   todayCalls: 0,
@@ -103,8 +133,19 @@ const stats = reactive<OpenStats>({
   activeKeys: 0,
 });
 
+const {
+  activeConsumerName,
+  currentScopeTitle,
+  hasManagedAccounts,
+  loadingManagedAccounts,
+  loadManagedAccounts,
+  scopeOptions,
+  selectedConsumerName,
+  updateScopeConsumerName,
+} = useManagedAccountScope();
 const apiKeys = ref<ApiKeyRecord[]>([]);
 const costDetails = ref<CostDetailRecord[]>([]);
+const requestDetails = ref<RequestDetailRecord[]>([]);
 const showCreateModal = ref(false);
 const editingKeyId = ref('');
 const loading = ref(false);
@@ -172,13 +213,39 @@ const costColumns: TableColumnsType<CostDetailRecord> = [
   },
 ];
 
+const requestDetailColumns: TableColumnsType<RequestDetailRecord> = [
+  {
+    title: '时间',
+    dataIndex: 'occurredAt',
+    customRender: ({ value }) => formatDateTimeDisplay(String(value ?? '')),
+  },
+  { title: '模型', dataIndex: 'modelId' },
+  { title: '请求类型', dataIndex: 'requestKind' },
+  { title: 'Key ID', dataIndex: 'apiKeyId' },
+  { title: '请求状态', dataIndex: 'requestStatus' },
+  { title: '计量状态', dataIndex: 'usageStatus' },
+  { title: 'HTTP', dataIndex: 'httpStatus' },
+  { title: 'Tokens', dataIndex: 'totalTokens' },
+  {
+    title: '费用',
+    dataIndex: 'costMicroYuan',
+    customRender: ({ value }) => `¥${(Number(value) / 1_000_000).toFixed(4)}`,
+  },
+];
+
 const loadData = async (includeRaw = showRawKeys.value) => {
   loading.value = true;
   try {
-    const [statsRes, keyRes, costRes] = await Promise.all([
-      fetchOpenStats(),
-      fetchApiKeys(includeRaw),
-      fetchCostDetails(),
+    const consumerName = activeConsumerName.value || undefined;
+    const [statsRes, keyRes, costRes, requestRes] = await Promise.all([
+      fetchOpenStats(consumerName),
+      fetchApiKeys(includeRaw, consumerName),
+      fetchCostDetails(consumerName),
+      fetchRequestDetails({
+        consumerName,
+        pageNum: 1,
+        pageSize: 50,
+      }),
     ]);
     showRawKeys.value = includeRaw;
     stats.todayCalls = statsRes.todayCalls;
@@ -187,6 +254,7 @@ const loadData = async (includeRaw = showRawKeys.value) => {
     stats.activeKeys = statsRes.activeKeys;
     apiKeys.value = keyRes;
     costDetails.value = costRes;
+    requestDetails.value = requestRes;
   } catch (error: unknown) {
     message.error(getErrorMessage(error, '开放平台数据加载失败'));
   } finally {
@@ -265,10 +333,10 @@ const submitKey = async () => {
       limitMonthly: keyForm.limitMonthly,
     };
     if (editingKeyId.value) {
-      await updateApiKey(editingKeyId.value, payload);
+      await updateApiKey(editingKeyId.value, payload, activeConsumerName.value || undefined);
       message.success('API Key 更新成功');
     } else {
-      await createApiKey(payload);
+      await createApiKey(payload, activeConsumerName.value || undefined);
       message.success('API Key 创建成功');
     }
     resetKeyForm();
@@ -283,7 +351,7 @@ const submitKey = async () => {
 
 const toggleStatus = async (id: string, checked: boolean) => {
   try {
-    await updateApiKeyStatus(id, checked ? 'active' : 'disabled');
+    await updateApiKeyStatus(id, checked ? 'active' : 'disabled', activeConsumerName.value || undefined);
     message.success('状态更新成功');
     await loadData();
   } catch (error: unknown) {
@@ -293,7 +361,7 @@ const toggleStatus = async (id: string, checked: boolean) => {
 
 const deleteKey = async (id: string) => {
   try {
-    await removeApiKey(id);
+    await removeApiKey(id, activeConsumerName.value || undefined);
     message.success('删除成功');
     await loadData();
   } catch (error: unknown) {
@@ -306,5 +374,23 @@ const openCreateModal = () => {
   showCreateModal.value = true;
 };
 
-onMounted(loadData);
+const onScopeChange = async (value: string) => {
+  await updateScopeConsumerName(String(value || ''));
+};
+
+onMounted(async () => {
+  try {
+    await loadManagedAccounts();
+  } catch (error: unknown) {
+    message.error(getErrorMessage(error, '子账号范围加载失败'));
+  }
+  await loadData();
+});
+
+watch(
+  () => activeConsumerName.value,
+  async () => {
+    await loadData();
+  },
+);
 </script>

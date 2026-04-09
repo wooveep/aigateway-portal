@@ -33,7 +33,7 @@
 </template>
 
 <script setup lang="ts">
-import { AppstoreOutlined, FileTextOutlined, KeyOutlined, LockOutlined, WalletOutlined } from '@ant-design/icons-vue';
+import { AppstoreOutlined, FileTextOutlined, KeyOutlined, LockOutlined, TeamOutlined, WalletOutlined } from '@ant-design/icons-vue';
 import type { MenuProps } from 'ant-design-vue';
 import { message } from 'ant-design-vue';
 import { computed, h } from 'vue';
@@ -48,28 +48,40 @@ const isPublicPage = computed(() => route.path === '/login' || route.path === '/
 const selectedKeys = computed(() => [route.path]);
 const isChangePasswordPage = computed(() => route.path === '/change-password');
 
-const menuItems: MenuProps['items'] = [
-  {
-    key: '/billing',
-    icon: () => h(WalletOutlined),
-    label: '个人账单',
-  },
-  {
-    key: '/models',
-    icon: () => h(AppstoreOutlined),
-    label: '模型广场',
-  },
-  {
-    key: '/open-platform',
-    icon: () => h(KeyOutlined),
-    label: '开放平台',
-  },
-  {
-    key: '/invoices',
-    icon: () => h(FileTextOutlined),
-    label: '发票管理',
-  },
-];
+const menuItems = computed<MenuProps['items']>(() => {
+  const items: MenuProps['items'] = [
+    {
+      key: '/billing',
+      icon: () => h(WalletOutlined),
+      label: '个人账单',
+    },
+  ];
+  if (authState.user?.isDepartmentAdmin) {
+    items.push({
+      key: '/accounts',
+      icon: () => h(TeamOutlined),
+      label: '部门管理',
+    });
+  }
+  items.push(
+    {
+      key: '/models',
+      icon: () => h(AppstoreOutlined),
+      label: '模型广场',
+    },
+    {
+      key: '/open-platform',
+      icon: () => h(KeyOutlined),
+      label: '开放平台',
+    },
+    {
+      key: '/invoices',
+      icon: () => h(FileTextOutlined),
+      label: '发票管理',
+    },
+  );
+  return items;
+});
 
 const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
   router.push(String(key));

@@ -8,9 +8,41 @@ export interface AuthUser {
   consumerName: string;
   displayName: string;
   email: string;
-  department: string;
+  departmentId: string;
+  departmentName: string;
+  departmentPath: string;
+  parentConsumerName: string;
+  adminConsumerName: string;
+  isDepartmentAdmin: boolean;
   userLevel: 'normal' | 'plus' | 'pro' | 'ultra' | string;
   status: 'active' | 'disabled' | 'pending';
+}
+
+export interface ManagedAccountSummary {
+  consumerName: string;
+  displayName: string;
+  email: string;
+  departmentId: string;
+  departmentName: string;
+  departmentPath: string;
+  parentConsumerName: string;
+  adminConsumerName: string;
+  isDepartmentAdmin: boolean;
+  userLevel: 'normal' | 'plus' | 'pro' | 'ultra' | string;
+  status: 'active' | 'disabled' | 'pending';
+  balance: string;
+  totalConsumption: string;
+  activeKeys: number;
+}
+
+export interface ManagedDepartmentNode {
+  departmentId: string;
+  name: string;
+  departmentPath: string;
+  parentDepartmentId: string;
+  adminConsumerName: string;
+  memberCount: number;
+  children?: ManagedDepartmentNode[];
 }
 
 export interface ChangePasswordPayload {
@@ -49,6 +81,7 @@ export interface ModelInfo {
   capabilities?: {
     modalities?: string[];
     features?: string[];
+    requestKinds?: string[];
   };
   pricing?: {
     currency?: string;
@@ -94,6 +127,47 @@ export interface CostDetailRecord {
   calls: number;
   tokens: number;
   cost: number;
+}
+
+export interface RequestDetailRecord {
+  eventId: string;
+  requestId: string;
+  traceId: string;
+  consumerName: string;
+  apiKeyId: string;
+  modelId: string;
+  priceVersionId: number;
+  routeName: string;
+  requestKind: string;
+  requestStatus: string;
+  usageStatus: string;
+  httpStatus: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cacheCreationInputTokens: number;
+  cacheCreation5mInputTokens: number;
+  cacheCreation1hInputTokens: number;
+  cacheReadInputTokens: number;
+  inputImageTokens: number;
+  outputImageTokens: number;
+  inputImageCount: number;
+  outputImageCount: number;
+  requestCount: number;
+  costMicroYuan: number;
+  departmentId: string;
+  departmentPath: string;
+  occurredAt: string;
+}
+
+export interface DepartmentBillingSummary {
+  departmentId: string;
+  departmentName: string;
+  departmentPath: string;
+  requestCount: number;
+  totalTokens: number;
+  totalCost: number;
+  activeConsumers: number;
 }
 
 export interface InvoiceProfile {

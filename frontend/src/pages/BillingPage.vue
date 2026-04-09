@@ -1,5 +1,23 @@
 <template>
   <div>
+    <a-card v-if="hasManagedAccounts" title="当前账单范围">
+      <a-space direction="vertical" style="width: 100%">
+        <a-select
+          :value="selectedConsumerName"
+          :options="scopeOptions"
+          :loading="loadingManagedAccounts"
+          style="width: 100%"
+          @change="onScopeChange"
+        />
+        <a-alert
+          type="info"
+          show-icon
+          :message="`当前正在查看：${currentScopeTitle}`"
+          description="切换账号后，当前页面会展示对应子账号的余额、累计消费和充值记录。"
+        />
+      </a-space>
+    </a-card>
+
     <a-row :gutter="16">
       <a-col :xs="24" :md="8">
         <a-card>
@@ -50,6 +68,16 @@
       />
     </a-card>
 
+    <a-card v-if="authState.user?.isDepartmentAdmin" title="部门账单汇总" class="portal-card">
+      <a-table
+        :columns="departmentColumns"
+        :data-source="departmentSummaries"
+        :pagination="{ pageSize: 5 }"
+        :loading="pageLoading"
+        row-key="departmentId"
+      />
+    </a-card>
+
     <a-card title="充值记录" class="portal-card">
       <a-table
         :columns="rechargeColumns"
@@ -63,16 +91,34 @@
 </template>
 
 <script setup lang="ts">
-import { createRecharge, fetchBillingOverview, fetchConsumptions, fetchRecharges } from '../api';
-import type { BillingOverview, ConsumptionRecord, RechargeRecord } from '../types';
+import {
+  createRecharge,
+  fetchBillingOverview,
+  fetchConsumptions,
+  fetchDepartmentBillingSummary,
+  fetchRecharges,
+} from '../api';
+import { authState } from '../auth';
+import { useManagedAccountScope } from '../composables/useManagedAccountScope';
+import type { BillingOverview, ConsumptionRecord, DepartmentBillingSummary, RechargeRecord } from '../types';
 import { formatDateTimeDisplay } from '../utils/time';
 import { message, Tag } from 'ant-design-vue';
 import type { TableColumnsType } from 'ant-design-vue';
-import { h, onMounted, reactive, ref } from 'vue';
+import { h, onMounted, reactive, ref, watch } from 'vue';
 
 const pageLoading = ref(false);
 const rechargeSubmitting = ref(false);
 const rechargeFormRef = ref();
+const {
+  activeConsumerName,
+  currentScopeTitle,
+  hasManagedAccounts,
+  loadingManagedAccounts,
+  loadManagedAccounts,
+  scopeOptions,
+  selectedConsumerName,
+  updateScopeConsumerName,
+} = useManagedAccountScope();
 const overview = reactive<BillingOverview>({
   balance: '0',
   totalRecharge: '0',
@@ -80,6 +126,7 @@ const overview = reactive<BillingOverview>({
 });
 const consumptions = ref<ConsumptionRecord[]>([]);
 const recharges = ref<RechargeRecord[]>([]);
+const departmentSummaries = ref<DepartmentBillingSummary[]>([]);
 
 const rechargeForm = reactive({
   amount: 100,
@@ -159,14 +206,34 @@ const rechargeColumns: TableColumnsType<RechargeRecord> = [
   },
 ];
 
+const departmentColumns: TableColumnsType<DepartmentBillingSummary> = [
+  { title: '部门', dataIndex: 'departmentName' },
+  { title: '路径', dataIndex: 'departmentPath' },
+  { title: '活跃账号数', dataIndex: 'activeConsumers' },
+  { title: '请求数', dataIndex: 'requestCount' },
+  { title: 'Tokens', dataIndex: 'totalTokens' },
+  {
+    title: '费用',
+    dataIndex: 'totalCost',
+    customRender: ({ value }) => `¥${Number(value).toFixed(2)}`,
+  },
+];
+
 const loadData = async () => {
   pageLoading.value = true;
   try {
-    const [overviewRes, consumptionRes, rechargeRes] = await Promise.all([
-      fetchBillingOverview(),
-      fetchConsumptions(),
-      fetchRecharges(),
+    const consumerName = activeConsumerName.value || undefined;
+    const [overviewRes, consumptionRes, rechargeRes, departmentRes] = await Promise.all([
+      fetchBillingOverview(consumerName),
+      fetchConsumptions(consumerName),
+      fetchRecharges(consumerName),
+      authState.user?.isDepartmentAdmin
+        ? fetchDepartmentBillingSummary({
+            includeChildren: true,
+          })
+        : Promise.resolve([] as DepartmentBillingSummary[]),
     ]);
+    departmentSummaries.value = departmentRes;
     overview.balance = overviewRes.balance;
     overview.totalRecharge = overviewRes.totalRecharge;
     overview.totalConsumption = overviewRes.totalConsumption;
@@ -188,7 +255,7 @@ const submitRecharge = async () => {
   rechargeSubmitting.value = true;
   message.loading({ key: 'recharge-submit', content: '充值处理中...' });
   try {
-    await createRecharge({ amount: rechargeForm.amount, channel: rechargeForm.channel });
+    await createRecharge({ amount: rechargeForm.amount, channel: rechargeForm.channel }, activeConsumerName.value || undefined);
     message.success({ key: 'recharge-submit', content: '充值成功' });
     await loadData();
   } catch (error: unknown) {
@@ -198,5 +265,23 @@ const submitRecharge = async () => {
   }
 };
 
-onMounted(loadData);
+const onScopeChange = async (value: string) => {
+  await updateScopeConsumerName(String(value || ''));
+};
+
+onMounted(async () => {
+  try {
+    await loadManagedAccounts();
+  } catch (error: unknown) {
+    message.error(getErrorMessage(error, '子账号范围加载失败'));
+  }
+  await loadData();
+});
+
+watch(
+  () => activeConsumerName.value,
+  async () => {
+    await loadData();
+  },
+);
 </script>

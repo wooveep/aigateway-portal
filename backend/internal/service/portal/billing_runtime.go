@@ -33,14 +33,14 @@ const (
 
 const billingUsageEventInsertSQL = `
 			INSERT INTO billing_usage_event
-			(event_id, request_id, trace_id, consumer_name, api_key_id, route_name, request_path, request_kind, model_id,
+			(event_id, request_id, trace_id, consumer_name, department_id, department_path, api_key_id, route_name, request_path, request_kind, model_id,
 			 request_status, usage_status, http_status, error_code, error_message,
 			 input_tokens, output_tokens, total_tokens, cache_creation_input_tokens, cache_creation_5m_input_tokens,
 			 cache_creation_1h_input_tokens, cache_read_input_tokens, input_image_tokens, output_image_tokens,
 			 input_image_count, output_image_count, request_count, cache_ttl,
 			 input_token_details_json, output_token_details_json, provider_usage_json,
 			 cost_micro_yuan, price_version_id, started_at, finished_at, redis_stream_id, occurred_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 type billingModelPriceProjection struct {
 	ModelID                                             string
@@ -72,6 +72,8 @@ type billingUsageEventPayload struct {
 	RequestID                  string
 	TraceID                    string
 	ConsumerName               string
+	DepartmentID               string
+	DepartmentPath             string
 	RouteName                  string
 	RequestPath                string
 	RequestKind                string
@@ -309,13 +311,6 @@ func (s *Service) StartBillingSync(ctx context.Context) {
 }
 
 func (s *Service) syncBillingStateOnce(ctx context.Context) error {
-	if entries, err := s.loadActiveModelPricesFromGateway(ctx); err != nil {
-		s.logf(ctx, "sync billing models from gateway skipped: %v", err)
-	} else if len(entries) > 0 {
-		if err = s.syncModelCatalogFromGateway(ctx, entries); err != nil {
-			return err
-		}
-	}
 	return s.syncBillingRuntimeProjection(ctx)
 }
 
@@ -555,6 +550,8 @@ func billingUsageEventInsertArgs(payload billingUsageEventPayload, streamID stri
 		payload.RequestID,
 		nullIfEmpty(payload.TraceID),
 		payload.ConsumerName,
+		payload.DepartmentID,
+		payload.DepartmentPath,
 		nullIfEmpty(payload.APIKeyID),
 		payload.RouteName,
 		payload.RequestPath,
@@ -677,6 +674,12 @@ func (s *Service) processBillingUsageEvent(ctx context.Context, streamID string,
 	if strings.EqualFold(payload.ConsumerName, builtinAdministratorUser) {
 		return nil
 	}
+	orgContext, err := s.loadUserOrgContext(ctx, payload.ConsumerName)
+	if err != nil {
+		return gerror.Wrap(err, "load consumer organization context failed")
+	}
+	payload.DepartmentID = strings.TrimSpace(orgContext.DepartmentID)
+	payload.DepartmentPath = strings.TrimSpace(orgContext.DepartmentPath)
 
 	err = s.db.Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
 		if _, txErr := tx.Exec(billingUsageEventInsertSQL, billingUsageEventInsertArgs(payload, streamID)...); txErr != nil {
@@ -755,12 +758,14 @@ func (s *Service) processBillingUsageEvent(ctx context.Context, streamID string,
 
 		if _, txErr := tx.Exec(`
 			INSERT INTO portal_usage_daily
-			(billing_date, consumer_name, model_name, request_count, input_tokens, output_tokens, total_tokens,
+			(billing_date, consumer_name, department_id, department_path, model_name, request_count, input_tokens, output_tokens, total_tokens,
 			 cache_creation_input_tokens, cache_creation_5m_input_tokens, cache_creation_1h_input_tokens,
 			 cache_read_input_tokens, input_image_tokens, output_image_tokens, input_image_count, output_image_count,
 			 cost_amount, source_from, source_to)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON DUPLICATE KEY UPDATE
+				department_id = CASE WHEN VALUES(department_id) <> '' THEN VALUES(department_id) ELSE department_id END,
+				department_path = CASE WHEN VALUES(department_path) <> '' THEN VALUES(department_path) ELSE department_path END,
 				request_count = request_count + VALUES(request_count),
 				input_tokens = input_tokens + VALUES(input_tokens),
 				output_tokens = output_tokens + VALUES(output_tokens),
@@ -778,6 +783,8 @@ func (s *Service) processBillingUsageEvent(ctx context.Context, streamID string,
 				source_to = IF(source_to IS NULL OR VALUES(source_to) > source_to, VALUES(source_to), source_to)`,
 			model.DayText(payload.OccurredAt),
 			payload.ConsumerName,
+			payload.DepartmentID,
+			payload.DepartmentPath,
 			payload.ModelID,
 			maxInt64(payload.RequestCount, 1),
 			payload.InputTokens,
@@ -811,6 +818,8 @@ func parseBillingUsageEventPayload(streamID string, values map[string]any) (bill
 		RequestID:                  strings.TrimSpace(stringifyAny(values["request_id"])),
 		TraceID:                    strings.TrimSpace(stringifyAny(values["trace_id"])),
 		ConsumerName:               model.NormalizeUsername(stringifyAny(values["consumer_name"])),
+		DepartmentID:               strings.TrimSpace(stringifyAny(values["department_id"])),
+		DepartmentPath:             strings.TrimSpace(stringifyAny(values["department_path"])),
 		RouteName:                  strings.TrimSpace(stringifyAny(values["route_name"])),
 		RequestPath:                strings.TrimSpace(stringifyAny(values["request_path"])),
 		RequestKind:                strings.TrimSpace(stringifyAny(values["request_kind"])),

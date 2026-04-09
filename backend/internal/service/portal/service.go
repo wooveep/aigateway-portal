@@ -70,6 +70,9 @@ func New(cfg config.Config) (*Service, error) {
 	if err = s.bootstrapBillingState(context.Background()); err != nil {
 		return nil, err
 	}
+	if err = s.backfillUsageDepartmentSnapshots(context.Background()); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -87,10 +90,12 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			consumer_name VARCHAR(128) NOT NULL UNIQUE,
 			display_name VARCHAR(128) NOT NULL,
 			email VARCHAR(255) NOT NULL DEFAULT '',
-			department VARCHAR(128) NOT NULL DEFAULT '',
 			password_hash VARCHAR(255) NOT NULL,
 			status VARCHAR(16) NOT NULL DEFAULT 'active',
 			source VARCHAR(16) NOT NULL DEFAULT 'portal',
+			user_level VARCHAR(16) NOT NULL DEFAULT 'normal',
+			is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+			deleted_at DATETIME NULL,
 			last_login_at DATETIME NULL,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -157,6 +162,8 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
 			billing_date DATE NOT NULL,
 			consumer_name VARCHAR(128) NOT NULL,
+			department_id VARCHAR(64) NOT NULL DEFAULT '',
+			department_path VARCHAR(512) NOT NULL DEFAULT '',
 			model_name VARCHAR(128) NOT NULL,
 			request_count BIGINT NOT NULL DEFAULT 0,
 			input_tokens BIGINT NOT NULL DEFAULT 0,
@@ -175,7 +182,8 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			source_to DATETIME NULL,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			UNIQUE KEY uk_usage_consumer_model_date (billing_date, consumer_name, model_name)
+			UNIQUE KEY uk_usage_consumer_model_date (billing_date, consumer_name, model_name),
+			INDEX idx_portal_usage_daily_department_date (department_id, billing_date)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 		`CREATE TABLE IF NOT EXISTS portal_recharge_order (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -186,6 +194,17 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			status VARCHAR(16) NOT NULL,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			INDEX idx_recharge_consumer (consumer_name)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS portal_balance_adjustment (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			adjustment_id VARCHAR(64) NOT NULL UNIQUE,
+			operator_consumer_name VARCHAR(128) NOT NULL,
+			target_consumer_name VARCHAR(128) NOT NULL,
+			delta_micro_yuan BIGINT NOT NULL,
+			reason VARCHAR(255) NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			INDEX idx_balance_adjustment_target (target_consumer_name, created_at),
+			INDEX idx_balance_adjustment_operator (operator_consumer_name, created_at)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 		`CREATE TABLE IF NOT EXISTS portal_invoice_profile (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -257,6 +276,8 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			request_id VARCHAR(128) NULL,
 			trace_id VARCHAR(128) NULL,
 			consumer_name VARCHAR(128) NOT NULL,
+			department_id VARCHAR(64) NOT NULL DEFAULT '',
+			department_path VARCHAR(512) NOT NULL DEFAULT '',
 			api_key_id VARCHAR(64) NULL,
 			route_name VARCHAR(255) NOT NULL DEFAULT '',
 			request_path VARCHAR(255) NOT NULL DEFAULT '',
@@ -290,7 +311,10 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			redis_stream_id VARCHAR(128) NOT NULL DEFAULT '',
 			occurred_at DATETIME NOT NULL,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			INDEX idx_billing_usage_event_consumer_time (consumer_name, occurred_at)
+			INDEX idx_billing_usage_event_consumer_time (consumer_name, occurred_at),
+			INDEX idx_billing_usage_event_consumer_model_time (consumer_name, model_id, occurred_at),
+			INDEX idx_billing_usage_event_api_key_time (api_key_id, occurred_at),
+			INDEX idx_billing_usage_event_department_time (department_id, occurred_at)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 		`CREATE TABLE IF NOT EXISTS quota_policy_user (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -319,6 +343,43 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			INDEX idx_billing_model_status (status)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS portal_model_asset (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			asset_id VARCHAR(128) NOT NULL UNIQUE,
+			canonical_name VARCHAR(128) NOT NULL UNIQUE,
+			display_name VARCHAR(128) NOT NULL,
+			intro TEXT NOT NULL,
+			tags_json TEXT NULL,
+			modalities_json TEXT NULL,
+			features_json TEXT NULL,
+			request_kinds_json TEXT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			INDEX idx_portal_model_asset_display_name (display_name)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS portal_model_binding (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			binding_id VARCHAR(128) NOT NULL UNIQUE,
+			asset_id VARCHAR(128) NOT NULL,
+			model_id VARCHAR(128) NOT NULL UNIQUE,
+			provider_name VARCHAR(128) NOT NULL,
+			target_model VARCHAR(128) NOT NULL,
+			protocol VARCHAR(128) NOT NULL DEFAULT 'openai/v1',
+			endpoint VARCHAR(255) NOT NULL DEFAULT '-',
+			pricing_json TEXT NOT NULL,
+			rpm BIGINT NULL,
+			tpm BIGINT NULL,
+			context_window BIGINT NULL,
+			status VARCHAR(16) NOT NULL DEFAULT 'draft',
+			published_at DATETIME NULL,
+			unpublished_at DATETIME NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			UNIQUE KEY uk_portal_model_binding_target (asset_id, provider_name, target_model),
+			INDEX idx_portal_model_binding_asset (asset_id),
+			INDEX idx_portal_model_binding_status (status),
+			INDEX idx_portal_model_binding_provider (provider_name)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 		`CREATE TABLE IF NOT EXISTS billing_model_price_version (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -357,6 +418,9 @@ func (s *Service) runMigrations(ctx context.Context) error {
 	if err := s.ensurePortalUserLevelColumn(ctx); err != nil {
 		return err
 	}
+	if err := s.ensurePortalUserDeleteColumns(ctx); err != nil {
+		return err
+	}
 	if err := s.ensurePortalAPIKeyColumns(ctx); err != nil {
 		return err
 	}
@@ -370,6 +434,12 @@ func (s *Service) runMigrations(ctx context.Context) error {
 		return err
 	}
 	if err := s.ensureBillingModelPriceColumns(ctx); err != nil {
+		return err
+	}
+	if err := s.ensurePortalModelAssetColumns(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureOrganizationSchema(ctx); err != nil {
 		return err
 	}
 	return nil
@@ -389,8 +459,24 @@ func (s *Service) ensurePortalUserLevelColumn(ctx context.Context) error {
 		return nil
 	}
 	if _, err = s.db.Exec(ctx,
-		`ALTER TABLE portal_user ADD COLUMN user_level VARCHAR(16) NOT NULL DEFAULT 'normal' AFTER department`); err != nil {
+		`ALTER TABLE portal_user ADD COLUMN user_level VARCHAR(16) NOT NULL DEFAULT 'normal'`); err != nil {
 		return gerror.Wrap(err, "add portal_user.user_level column failed")
+	}
+	return nil
+}
+
+func (s *Service) ensurePortalUserDeleteColumns(ctx context.Context) error {
+	changes := []struct {
+		column string
+		sql    string
+	}{
+		{"is_deleted", `ALTER TABLE portal_user ADD COLUMN is_deleted TINYINT(1) NOT NULL DEFAULT 0 AFTER user_level`},
+		{"deleted_at", `ALTER TABLE portal_user ADD COLUMN deleted_at DATETIME NULL AFTER is_deleted`},
+	}
+	for _, item := range changes {
+		if err := s.ensureTableColumn(ctx, "portal_user", item.column, item.sql); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -464,6 +550,8 @@ func (s *Service) ensureBillingUsageEventColumns(ctx context.Context) error {
 		sql    string
 	}{
 		{"trace_id", `ALTER TABLE billing_usage_event ADD COLUMN trace_id VARCHAR(128) NULL AFTER request_id`},
+		{"department_id", `ALTER TABLE billing_usage_event ADD COLUMN department_id VARCHAR(64) NOT NULL DEFAULT '' AFTER consumer_name`},
+		{"department_path", `ALTER TABLE billing_usage_event ADD COLUMN department_path VARCHAR(512) NOT NULL DEFAULT '' AFTER department_id`},
 		{"api_key_id", `ALTER TABLE billing_usage_event ADD COLUMN api_key_id VARCHAR(64) NULL AFTER consumer_name`},
 		{"request_path",
 			`ALTER TABLE billing_usage_event ADD COLUMN request_path VARCHAR(255) NOT NULL DEFAULT '' AFTER route_name`},
@@ -512,6 +600,18 @@ func (s *Service) ensureBillingUsageEventColumns(ctx context.Context) error {
 			return err
 		}
 	}
+	for _, index := range []struct {
+		name    string
+		columns string
+	}{
+		{"idx_billing_usage_event_consumer_model_time", "consumer_name, model_id, occurred_at"},
+		{"idx_billing_usage_event_api_key_time", "api_key_id, occurred_at"},
+		{"idx_billing_usage_event_department_time", "department_id, occurred_at"},
+	} {
+		if err := s.ensureTableIndex(ctx, "billing_usage_event", index.name, index.columns); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -520,6 +620,10 @@ func (s *Service) ensurePortalUsageDailyColumns(ctx context.Context) error {
 		column string
 		sql    string
 	}{
+		{"department_id",
+			`ALTER TABLE portal_usage_daily ADD COLUMN department_id VARCHAR(64) NOT NULL DEFAULT '' AFTER consumer_name`},
+		{"department_path",
+			`ALTER TABLE portal_usage_daily ADD COLUMN department_path VARCHAR(512) NOT NULL DEFAULT '' AFTER department_id`},
 		{"cache_creation_input_tokens",
 			`ALTER TABLE portal_usage_daily ADD COLUMN cache_creation_input_tokens BIGINT NOT NULL DEFAULT 0 AFTER output_tokens`},
 		{"cache_creation_5m_input_tokens",
@@ -539,6 +643,26 @@ func (s *Service) ensurePortalUsageDailyColumns(ctx context.Context) error {
 	}
 	for _, item := range changes {
 		if err := s.ensureTableColumn(ctx, "portal_usage_daily", item.column, item.sql); err != nil {
+			return err
+		}
+	}
+	if err := s.ensureTableIndex(ctx, "portal_usage_daily", "idx_portal_usage_daily_department_date",
+		"department_id, billing_date"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) ensurePortalModelAssetColumns(ctx context.Context) error {
+	changes := []struct {
+		column string
+		sql    string
+	}{
+		{"request_kinds_json",
+			`ALTER TABLE portal_model_asset ADD COLUMN request_kinds_json TEXT NULL AFTER features_json`},
+	}
+	for _, item := range changes {
+		if err := s.ensureTableColumn(ctx, "portal_model_asset", item.column, item.sql); err != nil {
 			return err
 		}
 	}
@@ -600,6 +724,25 @@ func (s *Service) ensureTableColumn(ctx context.Context, tableName string, colum
 	}
 	if _, err = s.db.Exec(ctx, alterSQL); err != nil {
 		return gerror.Wrapf(err, "add %s.%s column failed", tableName, columnName)
+	}
+	return nil
+}
+
+func (s *Service) ensureTableIndex(ctx context.Context, tableName string, indexName string, columns string) error {
+	existed, err := s.db.GetValue(ctx, `
+		SELECT COUNT(1)
+		FROM information_schema.STATISTICS
+		WHERE TABLE_SCHEMA = DATABASE()
+		  AND TABLE_NAME = ?
+		  AND INDEX_NAME = ?`, tableName, indexName)
+	if err != nil {
+		return gerror.Wrapf(err, "query %s.%s index existence failed", tableName, indexName)
+	}
+	if existed.Int() > 0 {
+		return nil
+	}
+	if _, err = s.db.Exec(ctx, "CREATE INDEX "+indexName+" ON "+tableName+" ("+columns+")"); err != nil {
+		return gerror.Wrapf(err, "add %s.%s index failed", tableName, indexName)
 	}
 	return nil
 }

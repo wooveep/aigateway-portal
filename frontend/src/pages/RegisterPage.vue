@@ -27,10 +27,6 @@
           <a-input v-model:value="form.email" placeholder="可选" />
         </a-form-item>
 
-        <a-form-item label="部门">
-          <a-input v-model:value="form.department" placeholder="可选" />
-        </a-form-item>
-
         <a-form-item label="密码" name="password" :rules="[{ required: true, message: '请输入密码' }, { min: 8, message: '密码至少 8 位' }]">
           <a-input-password v-model:value="form.password" placeholder="至少 8 位" />
         </a-form-item>
@@ -59,7 +55,6 @@ const form = reactive({
   username: '',
   displayName: '',
   email: '',
-  department: '',
   password: '',
 });
 
@@ -71,7 +66,6 @@ const onSubmit = async () => {
       username: form.username.trim(),
       displayName: form.displayName.trim(),
       email: form.email.trim(),
-      department: form.department.trim(),
       password: form.password,
     });
     message.success('注册成功，请联系管理员在 Console 组织架构中启用账号后登录');

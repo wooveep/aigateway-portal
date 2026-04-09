@@ -11,15 +11,16 @@ const AppTimeZone = "UTC"
 var appLocation = time.UTC
 
 type PortalUserRow struct {
-	ConsumerName string     `orm:"consumer_name"`
-	DisplayName  string     `orm:"display_name"`
-	Email        string     `orm:"email"`
-	Department   string     `orm:"department"`
-	UserLevel    string     `orm:"user_level"`
-	Status       string     `orm:"status"`
-	Source       string     `orm:"source"`
-	PasswordHash string     `orm:"password_hash"`
-	LastLoginAt  *time.Time `orm:"last_login_at"`
+	ConsumerName       string     `orm:"consumer_name"`
+	DisplayName        string     `orm:"display_name"`
+	Email              string     `orm:"email"`
+	DepartmentID       string     `orm:"department_id"`
+	UserLevel          string     `orm:"user_level"`
+	Status             string     `orm:"status"`
+	Source             string     `orm:"source"`
+	ParentConsumerName string     `orm:"parent_consumer_name"`
+	PasswordHash       string     `orm:"password_hash"`
+	LastLoginAt        *time.Time `orm:"last_login_at"`
 }
 
 type APIKeyRow struct {
@@ -43,12 +44,17 @@ type APIKeyRow struct {
 }
 
 type AuthUser struct {
-	ConsumerName string `json:"consumerName"`
-	DisplayName  string `json:"displayName"`
-	Email        string `json:"email"`
-	Department   string `json:"department"`
-	UserLevel    string `json:"userLevel"`
-	Status       string `json:"status"`
+	ConsumerName       string `json:"consumerName"`
+	DisplayName        string `json:"displayName"`
+	Email              string `json:"email"`
+	DepartmentID       string `json:"departmentId"`
+	DepartmentName     string `json:"departmentName"`
+	DepartmentPath     string `json:"departmentPath"`
+	ParentConsumerName string `json:"parentConsumerName"`
+	AdminConsumerName  string `json:"adminConsumerName"`
+	IsDepartmentAdmin  bool   `json:"isDepartmentAdmin"`
+	UserLevel          string `json:"userLevel"`
+	Status             string `json:"status"`
 }
 
 type RegisterResult struct {
@@ -60,6 +66,33 @@ type BillingOverview struct {
 	Balance          string `json:"balance"`
 	TotalRecharge    string `json:"totalRecharge"`
 	TotalConsumption string `json:"totalConsumption"`
+}
+
+type ManagedAccountSummary struct {
+	ConsumerName       string `json:"consumerName"`
+	DisplayName        string `json:"displayName"`
+	Email              string `json:"email"`
+	DepartmentID       string `json:"departmentId"`
+	DepartmentName     string `json:"departmentName"`
+	DepartmentPath     string `json:"departmentPath"`
+	ParentConsumerName string `json:"parentConsumerName"`
+	AdminConsumerName  string `json:"adminConsumerName"`
+	IsDepartmentAdmin  bool   `json:"isDepartmentAdmin"`
+	UserLevel          string `json:"userLevel"`
+	Status             string `json:"status"`
+	Balance            string `json:"balance"`
+	TotalConsumption   string `json:"totalConsumption"`
+	ActiveKeys         int64  `json:"activeKeys"`
+}
+
+type ManagedDepartmentNode struct {
+	DepartmentID       string                  `json:"departmentId"`
+	Name               string                  `json:"name"`
+	DepartmentPath     string                  `json:"departmentPath"`
+	ParentDepartmentID string                  `json:"parentDepartmentId"`
+	AdminConsumerName  string                  `json:"adminConsumerName"`
+	MemberCount        int64                   `json:"memberCount"`
+	Children           []ManagedDepartmentNode `json:"children,omitempty"`
 }
 
 type RechargeRecord struct {
@@ -96,8 +129,9 @@ type ModelInfo struct {
 }
 
 type ModelCapabilities struct {
-	Modalities []string `json:"modalities,omitempty"`
-	Features   []string `json:"features,omitempty"`
+	Modalities   []string `json:"modalities,omitempty"`
+	Features     []string `json:"features,omitempty"`
+	RequestKinds []string `json:"requestKinds,omitempty"`
 }
 
 type ModelPricing struct {
@@ -161,6 +195,47 @@ type CostDetailRecord struct {
 	Cost   float64 `json:"cost"`
 }
 
+type RequestDetailRecord struct {
+	EventID                    string `json:"eventId"`
+	RequestID                  string `json:"requestId"`
+	TraceID                    string `json:"traceId"`
+	ConsumerName               string `json:"consumerName"`
+	APIKeyID                   string `json:"apiKeyId"`
+	ModelID                    string `json:"modelId"`
+	PriceVersionID             int64  `json:"priceVersionId"`
+	RouteName                  string `json:"routeName"`
+	RequestKind                string `json:"requestKind"`
+	RequestStatus              string `json:"requestStatus"`
+	UsageStatus                string `json:"usageStatus"`
+	HTTPStatus                 int    `json:"httpStatus"`
+	InputTokens                int64  `json:"inputTokens"`
+	OutputTokens               int64  `json:"outputTokens"`
+	TotalTokens                int64  `json:"totalTokens"`
+	CacheCreationInputTokens   int64  `json:"cacheCreationInputTokens"`
+	CacheCreation5mInputTokens int64  `json:"cacheCreation5mInputTokens"`
+	CacheCreation1hInputTokens int64  `json:"cacheCreation1hInputTokens"`
+	CacheReadInputTokens       int64  `json:"cacheReadInputTokens"`
+	InputImageTokens           int64  `json:"inputImageTokens"`
+	OutputImageTokens          int64  `json:"outputImageTokens"`
+	InputImageCount            int64  `json:"inputImageCount"`
+	OutputImageCount           int64  `json:"outputImageCount"`
+	RequestCount               int64  `json:"requestCount"`
+	CostMicroYuan              int64  `json:"costMicroYuan"`
+	DepartmentID               string `json:"departmentId"`
+	DepartmentPath             string `json:"departmentPath"`
+	OccurredAt                 string `json:"occurredAt"`
+}
+
+type DepartmentBillingSummary struct {
+	DepartmentID    string  `json:"departmentId"`
+	DepartmentName  string  `json:"departmentName"`
+	DepartmentPath  string  `json:"departmentPath"`
+	RequestCount    int64   `json:"requestCount"`
+	TotalTokens     int64   `json:"totalTokens"`
+	TotalCost       float64 `json:"totalCost"`
+	ActiveConsumers int64   `json:"activeConsumers"`
+}
+
 type InvoiceProfile struct {
 	CompanyName string `json:"companyName"`
 	TaxNo       string `json:"taxNo"`
@@ -186,7 +261,6 @@ type RegisterRequest struct {
 	Password    string `json:"password"`
 	DisplayName string `json:"displayName"`
 	Email       string `json:"email"`
-	Department  string `json:"department"`
 }
 
 type LoginRequest struct {
@@ -230,6 +304,16 @@ type UpdateAPIKeyRequest struct {
 type CreateRechargeRequest struct {
 	Amount  float64 `json:"amount"`
 	Channel string  `json:"channel"`
+}
+
+type UpdateManagedAccountRequest struct {
+	UserLevel string `json:"userLevel"`
+	Status    string `json:"status"`
+}
+
+type AdjustManagedAccountBalanceRequest struct {
+	Amount float64 `json:"amount"`
+	Reason string  `json:"reason"`
 }
 
 type CreateInvoiceRequest struct {

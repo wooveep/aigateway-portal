@@ -55,12 +55,14 @@ func (s *Service) Register(ctx context.Context, req model.RegisterRequest) (mode
 		ConsumerName: username,
 		DisplayName:  displayName,
 		Email:        strings.TrimSpace(req.Email),
-		Department:   strings.TrimSpace(req.Department),
 		PasswordHash: passwordHash,
 		Status:       consts.UserStatusDisabled,
 		Source:       "portal",
 	}).Insert(); err != nil {
 		return model.RegisterResult{}, gerror.Wrap(err, "create user failed")
+	}
+	if err = s.ensureMembershipForConsumer(ctx, username); err != nil {
+		return model.RegisterResult{}, err
 	}
 
 	return model.RegisterResult{
@@ -68,7 +70,6 @@ func (s *Service) Register(ctx context.Context, req model.RegisterRequest) (mode
 			ConsumerName: username,
 			DisplayName:  displayName,
 			Email:        strings.TrimSpace(req.Email),
-			Department:   strings.TrimSpace(req.Department),
 			UserLevel:    consts.UserLevelNormal,
 			Status:       consts.UserStatusDisabled,
 		},
@@ -101,14 +102,23 @@ func (s *Service) Login(ctx context.Context, req model.LoginRequest) (model.Auth
 	}).Update(); err != nil {
 		return model.AuthUser{}, gerror.Wrap(err, "update last login failed")
 	}
+	orgContext, err := s.loadUserOrgContext(ctx, user.ConsumerName)
+	if err != nil {
+		return model.AuthUser{}, err
+	}
 
 	return model.AuthUser{
-		ConsumerName: user.ConsumerName,
-		DisplayName:  user.DisplayName,
-		Email:        user.Email,
-		Department:   user.Department,
-		UserLevel:    normalizeUserLevel(user.UserLevel),
-		Status:       user.Status,
+		ConsumerName:       user.ConsumerName,
+		DisplayName:        user.DisplayName,
+		Email:              user.Email,
+		DepartmentID:       orgContext.DepartmentID,
+		DepartmentName:     orgContext.DepartmentName,
+		DepartmentPath:     orgContext.DepartmentPath,
+		ParentConsumerName: orgContext.ParentConsumerName,
+		AdminConsumerName:  orgContext.AdminConsumerName,
+		IsDepartmentAdmin:  orgContext.IsDepartmentAdmin,
+		UserLevel:          normalizeUserLevel(user.UserLevel),
+		Status:             user.Status,
 	}, nil
 }
 
@@ -190,10 +200,10 @@ func (s *Service) ClearSession(ctx context.Context, token string) error {
 
 func (s *Service) AuthenticateSession(ctx context.Context, token string) (model.AuthUser, error) {
 	record, err := s.db.GetOne(ctx, `
-		SELECT u.consumer_name, u.display_name, u.email, u.department, u.user_level, u.status, u.source
+		SELECT u.consumer_name, u.display_name, u.email, u.user_level, u.status, u.source
 		FROM portal_session s
 		JOIN portal_user u ON u.consumer_name = s.consumer_name
-		WHERE s.session_token = ? AND s.expires_at > ?`, token, model.NowInAppLocation())
+		WHERE s.session_token = ? AND s.expires_at > ? AND COALESCE(u.is_deleted, 0) = 0`, token, model.NowInAppLocation())
 	if err != nil {
 		return model.AuthUser{}, gerror.Wrap(err, "query session failed")
 	}
@@ -204,13 +214,22 @@ func (s *Service) AuthenticateSession(ctx context.Context, token string) (model.
 		return model.AuthUser{}, apperr.New(403, "account is not allowed to login portal")
 	}
 
+	orgContext, err := s.loadUserOrgContext(ctx, record["consumer_name"].String())
+	if err != nil {
+		return model.AuthUser{}, err
+	}
 	user := model.AuthUser{
-		ConsumerName: record["consumer_name"].String(),
-		DisplayName:  record["display_name"].String(),
-		Email:        record["email"].String(),
-		Department:   record["department"].String(),
-		UserLevel:    normalizeUserLevel(record["user_level"].String()),
-		Status:       record["status"].String(),
+		ConsumerName:       record["consumer_name"].String(),
+		DisplayName:        record["display_name"].String(),
+		Email:              record["email"].String(),
+		DepartmentID:       orgContext.DepartmentID,
+		DepartmentName:     orgContext.DepartmentName,
+		DepartmentPath:     orgContext.DepartmentPath,
+		ParentConsumerName: orgContext.ParentConsumerName,
+		AdminConsumerName:  orgContext.AdminConsumerName,
+		IsDepartmentAdmin:  orgContext.IsDepartmentAdmin,
+		UserLevel:          normalizeUserLevel(record["user_level"].String()),
+		Status:             record["status"].String(),
 	}
 	if user.Status != consts.UserStatusActive {
 		return model.AuthUser{}, apperr.New(403, "account disabled")
@@ -235,8 +254,11 @@ func isPortalLoginBlockedUser(consumerName string, source string) bool {
 
 func (s *Service) getUserByName(ctx context.Context, consumerName string) (*model.PortalUserRow, error) {
 	record, err := s.db.GetOne(ctx, `
-		SELECT consumer_name, display_name, email, department, user_level, status, source, password_hash, last_login_at
-		FROM portal_user WHERE consumer_name = ?`, consumerName)
+		SELECT u.consumer_name, u.display_name, u.email, m.department_id, m.parent_consumer_name,
+			u.user_level, u.status, u.source, u.password_hash, u.last_login_at
+		FROM portal_user u
+		LEFT JOIN org_account_membership m ON m.consumer_name = u.consumer_name
+		WHERE u.consumer_name = ? AND COALESCE(u.is_deleted, 0) = 0`, consumerName)
 	if err != nil {
 		return nil, gerror.Wrap(err, "query user failed")
 	}

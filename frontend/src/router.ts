@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import BillingPage from './pages/BillingPage.vue';
 import ChangePasswordPage from './pages/ChangePasswordPage.vue';
+import ManagedAccountsPage from './pages/ManagedAccountsPage.vue';
 import ModelPlazaPage from './pages/ModelPlazaPage.vue';
 import OpenPlatformPage from './pages/OpenPlatformPage.vue';
 import InvoicePage from './pages/InvoicePage.vue';
@@ -17,6 +18,7 @@ const router = createRouter({
     { path: '/login', name: 'login', component: LoginPage },
     { path: '/register', name: 'register', component: RegisterPage },
     { path: '/billing', name: 'billing', component: BillingPage },
+    { path: '/accounts', name: 'accounts', component: ManagedAccountsPage },
     { path: '/change-password', name: 'change-password', component: ChangePasswordPage },
     { path: '/models', name: 'models', component: ModelPlazaPage },
     { path: '/open-platform', name: 'open-platform', component: OpenPlatformPage },
@@ -35,6 +37,10 @@ router.beforeEach(async (to) => {
   if (authState.user && isPublic) {
     const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/billing';
     return { path: redirect };
+  }
+
+  if (to.path === '/accounts' && authState.user && !authState.user.isDepartmentAdmin) {
+    return { path: '/billing' };
   }
 
   return true;
