@@ -1,9 +1,12 @@
 import axios from 'axios';
 import type {
+  AgentInfo,
   ApiKeyRecord,
   AuthUser,
   BillingOverview,
   ChangePasswordPayload,
+  ChatSessionDetail,
+  ChatSessionSummary,
   ConsumptionRecord,
   CostDetailRecord,
   DepartmentBillingSummary,
@@ -17,8 +20,10 @@ import type {
   RechargeRecord,
 } from './types';
 
+export const apiBaseURL = import.meta.env.VITE_API_BASE || '/api';
+
 const client = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || '/api',
+  baseURL: apiBaseURL,
   timeout: 10000,
   withCredentials: true,
 });
@@ -122,13 +127,39 @@ export async function createRecharge(payload: { amount: number; channel: string 
   return data;
 }
 
-export async function fetchModels() {
-  const { data } = await client.get<ModelInfo[]>('/models');
+export async function fetchModels(consumerName?: string) {
+  const { data } = await client.get<ModelInfo[]>('/models', {
+    params: {
+      consumerName,
+    },
+  });
   return data;
 }
 
-export async function fetchModelDetail(id: string) {
-  const { data } = await client.get<ModelInfo>(`/models/${id}`);
+export async function fetchAgents(consumerName?: string) {
+  const { data } = await client.get<AgentInfo[]>('/agents', {
+    params: {
+      consumerName,
+    },
+  });
+  return data;
+}
+
+export async function fetchModelDetail(id: string, consumerName?: string) {
+  const { data } = await client.get<ModelInfo>(`/models/${id}`, {
+    params: {
+      consumerName,
+    },
+  });
+  return data;
+}
+
+export async function fetchAgentDetail(id: string, consumerName?: string) {
+  const { data } = await client.get<AgentInfo>(`/agents/${id}`, {
+    params: {
+      consumerName,
+    },
+  });
   return data;
 }
 
@@ -268,5 +299,58 @@ export async function fetchInvoiceRecords() {
 
 export async function createInvoice(payload: { amount: number; remark?: string }) {
   const { data } = await client.post<InvoiceRecord>('/invoices/records', payload);
+  return data;
+}
+
+export async function fetchChatSessions(consumerName?: string) {
+  const { data } = await client.get<ChatSessionSummary[]>('/ai-chat/sessions', {
+    params: {
+      consumerName,
+    },
+  });
+  return data;
+}
+
+export async function createChatSession(payload?: {
+  title?: string;
+  defaultModelId?: string;
+  defaultApiKeyId?: string;
+}, consumerName?: string) {
+  const { data } = await client.post<ChatSessionSummary>('/ai-chat/sessions', payload || {}, {
+    params: {
+      consumerName,
+    },
+  });
+  return data;
+}
+
+export async function updateChatSession(sessionId: string, payload: {
+  title?: string;
+  defaultModelId?: string;
+  defaultApiKeyId?: string;
+}, consumerName?: string) {
+  const { data } = await client.patch<ChatSessionSummary>(`/ai-chat/sessions/${sessionId}`, payload, {
+    params: {
+      consumerName,
+    },
+  });
+  return data;
+}
+
+export async function fetchChatSessionDetail(sessionId: string, consumerName?: string) {
+  const { data } = await client.get<ChatSessionDetail>(`/ai-chat/sessions/${sessionId}`, {
+    params: {
+      consumerName,
+    },
+  });
+  return data;
+}
+
+export async function removeChatSession(sessionId: string, consumerName?: string) {
+  const { data } = await client.delete<{ id: string }>(`/ai-chat/sessions/${sessionId}`, {
+    params: {
+      consumerName,
+    },
+  });
   return data;
 }

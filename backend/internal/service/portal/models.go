@@ -24,6 +24,9 @@ func (s *Service) ListModels(ctx context.Context, user model.AuthUser) ([]model.
 	if err != nil {
 		return nil, apperr.New(503, "model catalog unavailable", err.Error())
 	}
+	for index := range items {
+		items[index] = s.applyModelRequestURL(items[index])
+	}
 	return items, nil
 }
 
@@ -35,7 +38,7 @@ func (s *Service) GetModelDetail(ctx context.Context, id string, user model.Auth
 
 	item, err := s.getVisibleModelFromPublishedBindings(ctx, targetID, user)
 	if err == nil && strings.TrimSpace(item.ID) != "" {
-		return item, nil
+		return s.applyModelRequestURL(item), nil
 	}
 	if err != nil {
 		return model.ModelInfo{}, apperr.New(503, "model catalog unavailable", err.Error())

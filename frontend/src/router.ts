@@ -1,4 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import AgentPlazaPage from './pages/AgentPlazaPage.vue';
+import AIChatPage from './pages/AIChatPage.vue';
 import BillingPage from './pages/BillingPage.vue';
 import ChangePasswordPage from './pages/ChangePasswordPage.vue';
 import ManagedAccountsPage from './pages/ManagedAccountsPage.vue';
@@ -21,6 +23,8 @@ const router = createRouter({
     { path: '/accounts', name: 'accounts', component: ManagedAccountsPage },
     { path: '/change-password', name: 'change-password', component: ChangePasswordPage },
     { path: '/models', name: 'models', component: ModelPlazaPage },
+    { path: '/agents', name: 'agents', component: AgentPlazaPage },
+    { path: '/ai-chat', name: 'ai-chat', component: AIChatPage },
     { path: '/open-platform', name: 'open-platform', component: OpenPlatformPage },
     { path: '/invoices', name: 'invoices', component: InvoicePage },
   ],

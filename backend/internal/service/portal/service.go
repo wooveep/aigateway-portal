@@ -26,6 +26,7 @@ type Service struct {
 	cfg             config.Config
 	db              gdb.DB
 	httpClient      *http.Client
+	streamClient    *http.Client
 	modelK8s        *clientK8s.Client
 	billingNodeName string
 	usageReadSyncMu sync.Mutex
@@ -54,6 +55,7 @@ func New(cfg config.Config) (*Service, error) {
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,
 		},
+		streamClient: &http.Client{},
 		modelK8s:        clientK8s.New(cfg),
 		billingNodeName: "portal-" + randomString(8),
 	}
@@ -380,6 +382,64 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			INDEX idx_portal_model_binding_asset (asset_id),
 			INDEX idx_portal_model_binding_status (status),
 			INDEX idx_portal_model_binding_provider (provider_name)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS portal_agent_catalog (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			agent_id VARCHAR(128) NOT NULL UNIQUE,
+			canonical_name VARCHAR(128) NOT NULL UNIQUE,
+			display_name VARCHAR(128) NOT NULL,
+			intro TEXT NOT NULL,
+			description TEXT NOT NULL,
+			icon_url VARCHAR(512) NOT NULL DEFAULT '',
+			tags_json TEXT NULL,
+			mcp_server_name VARCHAR(128) NOT NULL UNIQUE,
+			tool_count BIGINT NOT NULL DEFAULT 0,
+			transport_types_json TEXT NULL,
+			resource_summary TEXT NOT NULL,
+			prompt_summary TEXT NOT NULL,
+			status VARCHAR(16) NOT NULL DEFAULT 'draft',
+			published_at DATETIME NULL,
+			unpublished_at DATETIME NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			INDEX idx_portal_agent_catalog_status (status),
+			INDEX idx_portal_agent_catalog_display_name (display_name)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS portal_ai_chat_session (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			session_id VARCHAR(128) NOT NULL UNIQUE,
+			consumer_name VARCHAR(128) NOT NULL,
+			operator_consumer_name VARCHAR(128) NOT NULL,
+			title VARCHAR(255) NOT NULL,
+			default_model_id VARCHAR(128) NOT NULL DEFAULT '',
+			default_api_key_id VARCHAR(64) NOT NULL DEFAULT '',
+			last_message_preview VARCHAR(512) NOT NULL DEFAULT '',
+			last_message_at DATETIME NULL,
+			deleted_at DATETIME NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			INDEX idx_portal_ai_chat_session_consumer (consumer_name, deleted_at, last_message_at),
+			INDEX idx_portal_ai_chat_session_operator (operator_consumer_name, deleted_at)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`CREATE TABLE IF NOT EXISTS portal_ai_chat_message (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			message_id VARCHAR(128) NOT NULL UNIQUE,
+			session_id VARCHAR(128) NOT NULL,
+			role VARCHAR(16) NOT NULL,
+			content MEDIUMTEXT NOT NULL,
+			status VARCHAR(16) NOT NULL DEFAULT 'succeeded',
+			model_id VARCHAR(128) NOT NULL DEFAULT '',
+			api_key_id VARCHAR(64) NOT NULL DEFAULT '',
+			request_id VARCHAR(128) NOT NULL DEFAULT '',
+			trace_id VARCHAR(128) NOT NULL DEFAULT '',
+			http_status INT NOT NULL DEFAULT 0,
+			error_message VARCHAR(1024) NOT NULL DEFAULT '',
+			finished_at DATETIME NULL,
+			deleted_at DATETIME NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			INDEX idx_portal_ai_chat_message_session (session_id, deleted_at, created_at),
+			INDEX idx_portal_ai_chat_message_request (request_id)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 		`CREATE TABLE IF NOT EXISTS billing_model_price_version (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,

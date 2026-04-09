@@ -1,6 +1,8 @@
 package portal
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -246,7 +248,18 @@ func (c *Controller) AdjustManagedAccountBalance(r *ghttp.Request) {
 }
 
 func (c *Controller) ListModels(r *ghttp.Request) {
-	resp, err := c.svc.ListModels(r.Context(), authUserFromRequest(r))
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	scopeUser, err := c.svc.ResolveScopeUser(r.Context(), targetConsumer)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	resp, err := c.svc.ListModels(r.Context(), scopeUser)
 	if err != nil {
 		httpx.WriteError(r, err)
 		return
@@ -255,13 +268,181 @@ func (c *Controller) ListModels(r *ghttp.Request) {
 }
 
 func (c *Controller) ModelDetail(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	scopeUser, err := c.svc.ResolveScopeUser(r.Context(), targetConsumer)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
 	modelID := r.Get("id").String()
-	resp, err := c.svc.GetModelDetail(r.Context(), modelID, authUserFromRequest(r))
+	resp, err := c.svc.GetModelDetail(r.Context(), modelID, scopeUser)
 	if err != nil {
 		httpx.WriteError(r, err)
 		return
 	}
 	httpx.WriteJSON(r, http.StatusOK, resp)
+}
+
+func (c *Controller) ListAgents(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	scopeUser, err := c.svc.ResolveScopeUser(r.Context(), targetConsumer)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	resp, err := c.svc.ListAgents(r.Context(), scopeUser)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, resp)
+}
+
+func (c *Controller) AgentDetail(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	scopeUser, err := c.svc.ResolveScopeUser(r.Context(), targetConsumer)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	agentID := r.Get("id").String()
+	resp, err := c.svc.GetAgentDetail(r.Context(), agentID, scopeUser)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, resp)
+}
+
+func (c *Controller) ListChatSessions(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	resp, err := c.svc.ListChatSessions(r.Context(), targetConsumer)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, resp)
+}
+
+func (c *Controller) CreateChatSession(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	var req model.CreateChatSessionRequest
+	if err = r.Parse(&req); err != nil {
+		httpx.WriteJSON(r, http.StatusBadRequest, g.Map{"message": "invalid request body"})
+		return
+	}
+	resp, err := c.svc.CreateChatSession(r.Context(), targetConsumer, user.ConsumerName, req)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusCreated, resp)
+}
+
+func (c *Controller) UpdateChatSession(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	sessionID := strings.TrimSpace(r.Get("sessionId").String())
+	var req model.UpdateChatSessionRequest
+	if err = r.Parse(&req); err != nil {
+		httpx.WriteJSON(r, http.StatusBadRequest, g.Map{"message": "invalid request body"})
+		return
+	}
+	resp, err := c.svc.UpdateChatSession(r.Context(), targetConsumer, sessionID, req)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, resp)
+}
+
+func (c *Controller) ChatSessionDetail(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	sessionID := strings.TrimSpace(r.Get("sessionId").String())
+	resp, err := c.svc.GetChatSessionDetail(r.Context(), targetConsumer, sessionID)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, resp)
+}
+
+func (c *Controller) DeleteChatSession(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	sessionID := strings.TrimSpace(r.Get("sessionId").String())
+	if err = c.svc.DeleteChatSession(r.Context(), targetConsumer, sessionID); err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, g.Map{"id": sessionID})
+}
+
+func (c *Controller) StreamChatMessage(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	sessionID := strings.TrimSpace(r.Get("sessionId").String())
+	var req model.ChatSendMessageRequest
+	if err = r.Parse(&req); err != nil {
+		httpx.WriteJSON(r, http.StatusBadRequest, g.Map{"message": "invalid request body"})
+		return
+	}
+
+	r.Response.Header().Set("Content-Type", "text/event-stream")
+	r.Response.Header().Set("Cache-Control", "no-cache")
+	r.Response.Header().Set("Connection", "keep-alive")
+	r.Response.WriteHeader(http.StatusOK)
+	r.Response.Flush()
+
+	emitter := &portalChatStreamEmitter{request: r}
+	if err = c.svc.StreamChatMessage(r.Context(), targetConsumer, sessionID, req, emitter); err != nil && r.Context().Err() == nil {
+		_ = emitter.Emit("error", model.ChatStreamError{
+			Code:    "stream_failed",
+			Message: err.Error(),
+		})
+	}
 }
 
 func (c *Controller) ListAPIKeys(r *ghttp.Request) {
@@ -522,4 +703,27 @@ func authUserFromRequest(r *ghttp.Request) model.AuthUser {
 
 func (c *Controller) resolveAccessibleConsumer(r *ghttp.Request, user model.AuthUser) (string, error) {
 	return c.svc.ResolveAccessibleConsumer(r.Context(), user.ConsumerName, strings.TrimSpace(r.Get("consumerName").String()))
+}
+
+type portalChatStreamEmitter struct {
+	request *ghttp.Request
+}
+
+func (e *portalChatStreamEmitter) Context() context.Context {
+	return e.request.Context()
+}
+
+func (e *portalChatStreamEmitter) Emit(event string, payload any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if _, err = e.request.Response.WriteString("event: " + event + "\n"); err != nil {
+		return err
+	}
+	if _, err = e.request.Response.WriteString("data: " + string(body) + "\n\n"); err != nil {
+		return err
+	}
+	e.request.Response.Flush()
+	return nil
 }

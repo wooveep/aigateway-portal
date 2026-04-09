@@ -38,6 +38,8 @@ type Config struct {
 	RechargeFallbackAvgCostPer1K float64
 	ShutdownGracePeriod          time.Duration
 	PortalDisplayName            string
+	GatewayPublicBaseURL         string
+	GatewayInternalBaseURL       string
 	WebRoot                      string
 }
 
@@ -71,6 +73,8 @@ func Load() Config {
 		RechargeFallbackAvgCostPer1K: getEnvFloat("PORTAL_RECHARGE_FALLBACK_AVG_COST_PER_1K", 0.02),
 		ShutdownGracePeriod:          time.Duration(getEnvInt("PORTAL_SHUTDOWN_GRACE_SECONDS", 10)) * time.Second,
 		PortalDisplayName:            getEnv("PORTAL_DISPLAY_NAME", "AIGateway 用户门户"),
+		GatewayPublicBaseURL:         strings.TrimRight(getEnv("PORTAL_GATEWAY_PUBLIC_BASE_URL", ""), "/"),
+		GatewayInternalBaseURL:       strings.TrimRight(getEnv("PORTAL_GATEWAY_INTERNAL_BASE_URL", ""), "/"),
 		WebRoot:                      getEnv("PORTAL_WEB_ROOT", "/app/web"),
 	}
 	if cfg.MySQLDSN == "" && !hasPortalMySQLConnEnv() {
@@ -83,6 +87,9 @@ func Load() Config {
 	}
 	if strings.TrimSpace(cfg.K8sNamespace) == "" {
 		cfg.K8sNamespace = "aigateway-system"
+	}
+	if cfg.GatewayInternalBaseURL == "" {
+		cfg.GatewayInternalBaseURL = cfg.GatewayPublicBaseURL
 	}
 	return cfg
 }

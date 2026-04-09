@@ -73,6 +73,15 @@ func mainFunc(ctx context.Context, parser *gcmd.Parser) (err error) {
 
 				biz.GET("/models", ctrl.ListModels)
 				biz.GET("/models/:id", ctrl.ModelDetail)
+				biz.GET("/agents", ctrl.ListAgents)
+				biz.GET("/agents/:id", ctrl.AgentDetail)
+
+				biz.GET("/ai-chat/sessions", ctrl.ListChatSessions)
+				biz.POST("/ai-chat/sessions", ctrl.CreateChatSession)
+				biz.PATCH("/ai-chat/sessions/:sessionId", ctrl.UpdateChatSession)
+				biz.GET("/ai-chat/sessions/:sessionId", ctrl.ChatSessionDetail)
+				biz.DELETE("/ai-chat/sessions/:sessionId", ctrl.DeleteChatSession)
+				biz.POST("/ai-chat/sessions/:sessionId/messages/stream", ctrl.StreamChatMessage)
 
 				biz.GET("/open-platform/keys", ctrl.ListAPIKeys)
 				biz.POST("/open-platform/keys", ctrl.CreateAPIKey)

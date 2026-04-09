@@ -1,39 +1,14 @@
-<template>
-  <router-view v-if="isPublicPage" />
-
-  <a-layout v-else class="portal-layout">
-    <a-layout-sider breakpoint="lg" collapsed-width="0">
-      <div class="logo">AIGateway 用户门户</div>
-      <a-menu
-        theme="dark"
-        mode="inline"
-        :selected-keys="selectedKeys"
-        :items="menuItems"
-        @click="handleMenuClick"
-      />
-    </a-layout-sider>
-
-    <a-layout>
-      <a-layout-header class="header">
-        <div class="header-title">企业 AI 开放平台</div>
-        <div class="header-user">
-          <a-tag color="blue">{{ authState.user?.displayName || authState.user?.consumerName }}</a-tag>
-          <a-tag color="geekblue">等级：{{ formatUserLevel(authState.user?.userLevel) }}</a-tag>
-          <a-button type="link" :icon="h(LockOutlined)" :disabled="isChangePasswordPage" @click="goChangePassword">
-            修改密码
-          </a-button>
-          <a-button type="link" @click="onLogout">退出登录</a-button>
-        </div>
-      </a-layout-header>
-      <a-layout-content class="content">
-        <router-view />
-      </a-layout-content>
-    </a-layout>
-  </a-layout>
-</template>
-
 <script setup lang="ts">
-import { AppstoreOutlined, FileTextOutlined, KeyOutlined, LockOutlined, TeamOutlined, WalletOutlined } from '@ant-design/icons-vue';
+import {
+  AppstoreOutlined,
+  CommentOutlined,
+  FileTextOutlined,
+  KeyOutlined,
+  LockOutlined,
+  RobotOutlined,
+  TeamOutlined,
+  WalletOutlined,
+} from '@ant-design/icons-vue';
 import type { MenuProps } from 'ant-design-vue';
 import { message } from 'ant-design-vue';
 import { computed, h } from 'vue';
@@ -55,19 +30,20 @@ const menuItems = computed<MenuProps['items']>(() => {
       icon: () => h(WalletOutlined),
       label: '个人账单',
     },
-  ];
-  if (authState.user?.isDepartmentAdmin) {
-    items.push({
-      key: '/accounts',
-      icon: () => h(TeamOutlined),
-      label: '部门管理',
-    });
-  }
-  items.push(
+    {
+      key: '/ai-chat',
+      icon: () => h(CommentOutlined),
+      label: 'AI 对话',
+    },
     {
       key: '/models',
       icon: () => h(AppstoreOutlined),
       label: '模型广场',
+    },
+    {
+      key: '/agents',
+      icon: () => h(RobotOutlined),
+      label: '智能体广场',
     },
     {
       key: '/open-platform',
@@ -79,17 +55,16 @@ const menuItems = computed<MenuProps['items']>(() => {
       icon: () => h(FileTextOutlined),
       label: '发票管理',
     },
-  );
+  ];
+  if (authState.user?.isDepartmentAdmin) {
+    items.push({
+      key: '/accounts',
+      icon: () => h(TeamOutlined),
+      label: '部门管理',
+    });
+  }
   return items;
 });
-
-const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
-  router.push(String(key));
-};
-
-const goChangePassword = () => {
-  router.push('/change-password');
-};
 
 const formatUserLevel = (value?: string) => {
   const level = String(value || '').toLowerCase();
@@ -97,6 +72,14 @@ const formatUserLevel = (value?: string) => {
   if (level === 'pro') return 'Pro';
   if (level === 'plus') return 'Plus';
   return 'Normal';
+};
+
+const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
+  router.push(String(key));
+};
+
+const goChangePassword = () => {
+  router.push('/change-password');
 };
 
 const onLogout = async () => {
@@ -110,3 +93,50 @@ const onLogout = async () => {
   router.push('/login');
 };
 </script>
+
+<template>
+  <router-view v-if="isPublicPage" />
+
+  <div v-else class="portal-shell">
+    <aside class="portal-shell__sidebar">
+      <div class="portal-shell__brand">
+        <div class="portal-shell__brand-mark">HG</div>
+        <div>
+          <div class="portal-shell__brand-title">AIGateway Portal</div>
+          <div class="portal-shell__brand-subtitle">Warm terminal for AI access</div>
+        </div>
+      </div>
+
+      <a-menu
+        mode="inline"
+        :selected-keys="selectedKeys"
+        :items="menuItems"
+        class="portal-shell__menu"
+        @click="handleMenuClick"
+      />
+    </aside>
+
+    <main class="portal-shell__main">
+      <header class="portal-shell__header">
+        <div>
+          <div class="portal-shell__eyebrow">Enterprise AI Open Platform</div>
+          <div class="portal-shell__header-title">统一管理模型、智能体、会话与 API Key</div>
+        </div>
+
+        <div class="portal-shell__header-actions">
+          <span class="portal-shell__pill">{{ authState.user?.displayName || authState.user?.consumerName }}</span>
+          <span class="portal-shell__pill">Level {{ formatUserLevel(authState.user?.userLevel) }}</span>
+          <a-button type="text" :disabled="isChangePasswordPage" @click="goChangePassword">
+            <LockOutlined />
+            修改密码
+          </a-button>
+          <a-button type="primary" @click="onLogout">退出登录</a-button>
+        </div>
+      </header>
+
+      <section class="portal-shell__content">
+        <router-view />
+      </section>
+    </main>
+  </div>
+</template>

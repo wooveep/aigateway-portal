@@ -74,6 +74,7 @@ export interface ModelInfo {
   inputTokenPrice: number;
   outputTokenPrice: number;
   endpoint: string;
+  requestUrl?: string;
   sdk: string;
   updatedAt: string;
   summary: string;
@@ -93,6 +94,63 @@ export interface ModelInfo {
     tpm?: number;
     contextWindow?: number;
   };
+}
+
+export interface AgentToolSummary {
+  name: string;
+  description: string;
+}
+
+export interface AgentInfo {
+  id: string;
+  canonicalName: string;
+  displayName: string;
+  intro: string;
+  description: string;
+  iconUrl: string;
+  tags?: string[];
+  mcpServerName: string;
+  toolCount: number;
+  transportTypes?: string[];
+  resourceSummary: string;
+  promptSummary: string;
+  httpUrl: string;
+  sseUrl: string;
+  tools?: AgentToolSummary[];
+  publishedAt: string;
+  updatedAt: string;
+}
+
+export interface ChatSessionSummary {
+  sessionId: string;
+  consumerName: string;
+  title: string;
+  defaultModelId: string;
+  defaultApiKeyId: string;
+  lastMessagePreview: string;
+  lastMessageAt: string;
+  createdAt: string;
+}
+
+export interface ChatMessageRecord {
+  messageId: string;
+  sessionId: string;
+  role: 'user' | 'assistant' | string;
+  content: string;
+  status: 'streaming' | 'succeeded' | 'failed' | 'cancelled' | string;
+  modelId: string;
+  apiKeyId: string;
+  requestId: string;
+  traceId: string;
+  httpStatus: number;
+  errorMessage: string;
+  createdAt: string;
+  finishedAt: string;
+}
+
+export interface ChatSessionDetail {
+  session: ChatSessionSummary;
+  messages: ChatMessageRecord[];
 }
 
 export interface ApiKeyRecord {

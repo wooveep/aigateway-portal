@@ -119,6 +119,7 @@ type ModelInfo struct {
 	InputTokenPrice  float64           `json:"inputTokenPrice"`
 	OutputTokenPrice float64           `json:"outputTokenPrice"`
 	Endpoint         string            `json:"endpoint"`
+	RequestURL       string            `json:"requestUrl,omitempty"`
 	SDK              string            `json:"sdk"`
 	UpdatedAt        string            `json:"updatedAt"`
 	Summary          string            `json:"summary"`
@@ -126,6 +127,63 @@ type ModelInfo struct {
 	Capabilities     ModelCapabilities `json:"capabilities,omitempty"`
 	Pricing          ModelPricing      `json:"pricing,omitempty"`
 	Limits           ModelLimits       `json:"limits,omitempty"`
+}
+
+type AgentToolSummary struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type AgentInfo struct {
+	ID              string             `json:"id"`
+	CanonicalName   string             `json:"canonicalName"`
+	DisplayName     string             `json:"displayName"`
+	Intro           string             `json:"intro"`
+	Description     string             `json:"description"`
+	IconURL         string             `json:"iconUrl"`
+	Tags            []string           `json:"tags,omitempty"`
+	McpServerName   string             `json:"mcpServerName"`
+	ToolCount       int64              `json:"toolCount"`
+	TransportTypes  []string           `json:"transportTypes,omitempty"`
+	ResourceSummary string             `json:"resourceSummary"`
+	PromptSummary   string             `json:"promptSummary"`
+	HTTPURL         string             `json:"httpUrl"`
+	SSEURL          string             `json:"sseUrl"`
+	Tools           []AgentToolSummary `json:"tools,omitempty"`
+	PublishedAt     string             `json:"publishedAt"`
+	UpdatedAt       string             `json:"updatedAt"`
+}
+
+type ChatSessionSummary struct {
+	SessionID          string `json:"sessionId"`
+	ConsumerName       string `json:"consumerName"`
+	Title              string `json:"title"`
+	DefaultModelID     string `json:"defaultModelId"`
+	DefaultAPIKeyID    string `json:"defaultApiKeyId"`
+	LastMessagePreview string `json:"lastMessagePreview"`
+	LastMessageAt      string `json:"lastMessageAt"`
+	CreatedAt          string `json:"createdAt"`
+}
+
+type ChatMessageRecord struct {
+	MessageID    string `json:"messageId"`
+	SessionID    string `json:"sessionId"`
+	Role         string `json:"role"`
+	Content      string `json:"content"`
+	Status       string `json:"status"`
+	ModelID      string `json:"modelId"`
+	APIKeyID     string `json:"apiKeyId"`
+	RequestID    string `json:"requestId"`
+	TraceID      string `json:"traceId"`
+	HTTPStatus   int    `json:"httpStatus"`
+	ErrorMessage string `json:"errorMessage"`
+	CreatedAt    string `json:"createdAt"`
+	FinishedAt   string `json:"finishedAt"`
+}
+
+type ChatSessionDetail struct {
+	Session  ChatSessionSummary  `json:"session"`
+	Messages []ChatMessageRecord `json:"messages"`
 }
 
 type ModelCapabilities struct {
@@ -319,6 +377,49 @@ type AdjustManagedAccountBalanceRequest struct {
 type CreateInvoiceRequest struct {
 	Amount float64 `json:"amount"`
 	Remark string  `json:"remark"`
+}
+
+type CreateChatSessionRequest struct {
+	Title           string `json:"title"`
+	DefaultModelID  string `json:"defaultModelId"`
+	DefaultAPIKeyID string `json:"defaultApiKeyId"`
+}
+
+type UpdateChatSessionRequest struct {
+	Title           string `json:"title"`
+	DefaultModelID  string `json:"defaultModelId"`
+	DefaultAPIKeyID string `json:"defaultApiKeyId"`
+}
+
+type ChatSendMessageRequest struct {
+	Content  string `json:"content"`
+	ModelID  string `json:"modelId"`
+	APIKeyID string `json:"apiKeyId"`
+}
+
+type ChatStreamAck struct {
+	UserMessageID      string `json:"userMessageId"`
+	AssistantMessageID string `json:"assistantMessageId"`
+	SessionID          string `json:"sessionId"`
+}
+
+type ChatStreamDelta struct {
+	AssistantMessageID string `json:"assistantMessageId"`
+	Delta              string `json:"delta"`
+	Text               string `json:"text"`
+}
+
+type ChatStreamDone struct {
+	AssistantMessageID string `json:"assistantMessageId"`
+	RequestID          string `json:"requestId"`
+	TraceID            string `json:"traceId"`
+	HTTPStatus         int    `json:"httpStatus"`
+}
+
+type ChatStreamError struct {
+	AssistantMessageID string `json:"assistantMessageId"`
+	Code               string `json:"code"`
+	Message            string `json:"message"`
 }
 
 type ConsumerUsageStat struct {
