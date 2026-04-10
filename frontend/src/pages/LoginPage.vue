@@ -1,8 +1,13 @@
 <template>
-  <div class="auth-page">
+  <div class="portal-auth">
+    <section class="portal-auth__hero">
+      <div class="portal-page__eyebrow">AIGateway Portal</div>
+      <h1 class="portal-auth__title">登录</h1>
+    </section>
+
     <a-card class="auth-card" :bordered="false">
       <template #title>
-        <h2 class="auth-title">登录 AIGateway 用户门户</h2>
+        <h2 class="auth-title">登录</h2>
       </template>
 
       <a-form layout="vertical" :model="form" @finish="onSubmit">
@@ -18,8 +23,10 @@
           <a-button type="primary" html-type="submit" block :loading="loading">登录</a-button>
         </a-form-item>
 
-        <a-typography-text type="secondary">没有账号？</a-typography-text>
-        <a-button type="link" @click="goRegister">去注册</a-button>
+        <div class="portal-record__meta">
+          没有账号？
+          <a-button type="link" @click="goRegister">去注册</a-button>
+        </div>
       </a-form>
     </a-card>
   </div>

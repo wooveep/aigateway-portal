@@ -20,7 +20,7 @@ const segments = computed<MessageSegment[]>(() => {
   }
   const parts = content.split('```');
   return parts
-    .map((part, index) => ({
+    .map<MessageSegment>((part, index) => ({
       type: index % 2 === 0 ? 'text' : 'code',
       content: index % 2 === 0 ? part : part.replace(/^[a-zA-Z0-9_-]+\n/, ''),
     }))
@@ -31,6 +31,13 @@ const isUser = computed(() => props.item.role === 'user');
 const isErrored = computed(() => props.item.status === 'failed');
 const isCancelled = computed(() => props.item.status === 'cancelled');
 const isStreaming = computed(() => props.item.status === 'streaming');
+
+const stateText = computed(() => {
+  if (isStreaming.value) return '生成中';
+  if (isErrored.value) return '失败';
+  if (isCancelled.value) return '已取消';
+  return '已完成';
+});
 
 const copyBlock = async (value: string) => {
   try {
@@ -44,74 +51,126 @@ const copyBlock = async (value: string) => {
 
 <template>
   <article class="chat-message" :class="{ 'chat-message--user': isUser }">
-    <div class="chat-message__meta">
-      <span>{{ isUser ? 'You' : 'AI' }}</span>
-      <span>{{ formatDateDisplay(item.finishedAt || item.createdAt) }}</span>
-      <span v-if="item.modelId">{{ item.modelId }}</span>
-      <span v-if="isStreaming">生成中</span>
-      <span v-else-if="isErrored" class="chat-message__status chat-message__status--error">失败</span>
-      <span v-else-if="isCancelled" class="chat-message__status">已取消</span>
-    </div>
+    <div class="chat-message__avatar">{{ isUser ? 'U' : 'AI' }}</div>
 
-    <div class="chat-message__bubble" :class="{ 'chat-message__bubble--error': isErrored }">
-      <template v-if="segments.length">
-        <template v-for="(segment, index) in segments" :key="`${item.messageId}-${index}`">
-          <pre v-if="segment.type === 'text'" class="chat-message__text">{{ segment.content }}</pre>
-          <div v-else class="chat-message__code-wrap">
-            <button type="button" class="chat-message__copy" @click="copyBlock(segment.content)">
-              <CopyOutlined />
-              Copy
-            </button>
-            <pre class="chat-message__code">{{ segment.content }}</pre>
-          </div>
+    <div class="chat-message__body">
+      <div class="chat-message__meta">
+        <span class="chat-message__author">{{ isUser ? '当前用户' : 'AI 助手' }}</span>
+        <span>{{ formatDateDisplay(item.finishedAt || item.createdAt) }}</span>
+        <span v-if="item.modelId">{{ item.modelId }}</span>
+        <span class="portal-status" :class="{
+          'portal-status--danger': isErrored,
+          'portal-status--warning': isStreaming || isCancelled,
+          'portal-status--success': !isErrored && !isStreaming && !isCancelled,
+        }">
+          {{ stateText }}
+        </span>
+      </div>
+
+      <div class="chat-message__bubble" :class="{ 'chat-message__bubble--user': isUser, 'chat-message__bubble--error': isErrored }">
+        <template v-if="segments.length">
+          <template v-for="(segment, index) in segments" :key="`${item.messageId}-${index}`">
+            <pre v-if="segment.type === 'text'" class="chat-message__text">{{ segment.content }}</pre>
+            <div v-else class="chat-message__code-wrap">
+              <button type="button" class="chat-message__copy" @click="copyBlock(segment.content)">
+                <CopyOutlined />
+                Copy
+              </button>
+              <pre class="chat-message__code">{{ segment.content }}</pre>
+            </div>
+          </template>
         </template>
-      </template>
-      <div v-else class="chat-message__placeholder">等待内容...</div>
-    </div>
+        <div v-else class="chat-message__placeholder">等待内容...</div>
+      </div>
 
-    <div v-if="item.requestId || item.traceId || item.errorMessage" class="chat-message__footer">
-      <span v-if="item.requestId">req: {{ item.requestId }}</span>
-      <span v-if="item.traceId">trace: {{ item.traceId }}</span>
-      <span v-if="item.errorMessage" class="chat-message__error-text">{{ item.errorMessage }}</span>
+      <div v-if="item.requestId || item.traceId || item.errorMessage || item.apiKeyId" class="chat-message__footer">
+        <div v-if="item.apiKeyId" class="chat-message__footer-item">
+          <span class="portal-data-item__label">API Key</span>
+          <span class="chat-message__footer-value chat-message__footer-value--nowrap">{{ item.apiKeyId }}</span>
+        </div>
+        <div v-if="item.requestId" class="chat-message__footer-item">
+          <span class="portal-data-item__label">Request ID</span>
+          <span class="chat-message__footer-value chat-message__footer-value--nowrap">{{ item.requestId }}</span>
+        </div>
+        <div v-if="item.traceId" class="chat-message__footer-item">
+          <span class="portal-data-item__label">Trace</span>
+          <span class="chat-message__footer-value chat-message__footer-value--nowrap">{{ item.traceId }}</span>
+        </div>
+        <div v-if="item.errorMessage" class="chat-message__footer-item chat-message__footer-item--error">
+          <span class="portal-data-item__label">错误信息</span>
+          <span class="chat-message__footer-value">{{ item.errorMessage }}</span>
+        </div>
+      </div>
     </div>
   </article>
 </template>
 
 <style scoped>
 .chat-message {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
 }
 
 .chat-message--user {
-  align-items: flex-end;
+  grid-template-columns: minmax(0, 1fr) 40px;
 }
 
-.chat-message__meta,
-.chat-message__footer {
+.chat-message__avatar {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(15, 118, 110, 0.14), rgba(15, 118, 110, 0.04));
+  color: var(--portal-accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chat-message--user .chat-message__avatar {
+  order: 2;
+  background: linear-gradient(135deg, rgba(6, 27, 49, 0.1), rgba(6, 27, 49, 0.03));
+  color: var(--portal-text-primary);
+}
+
+.chat-message__body {
+  min-width: 0;
+}
+
+.chat-message__meta {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  font-size: 11px;
+  align-items: center;
   color: var(--portal-text-muted);
+  font-size: 12px;
+}
+
+.chat-message__author {
+  color: var(--portal-text-primary);
+  font-weight: 500;
 }
 
 .chat-message__bubble {
-  width: min(100%, 860px);
+  width: min(100%, 920px);
+  margin-top: 10px;
   border: 1px solid var(--portal-border);
-  border-radius: 4px;
-  background: rgba(253, 252, 252, 0.02);
-  padding: 16px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: var(--portal-shadow-ambient);
+  padding: 16px 18px;
 }
 
-.chat-message--user .chat-message__bubble {
-  background: rgba(253, 252, 252, 0.06);
+.chat-message__bubble--user {
+  margin-left: auto;
+  background: linear-gradient(180deg, rgba(15, 118, 110, 0.08) 0%, rgba(15, 118, 110, 0.04) 100%);
+  border-color: rgba(15, 118, 110, 0.18);
 }
 
 .chat-message__bubble--error {
-  border-color: rgba(255, 59, 48, 0.42);
+  border-color: rgba(215, 45, 89, 0.18);
 }
 
 .chat-message__text,
@@ -120,15 +179,15 @@ const copyBlock = async (value: string) => {
   white-space: pre-wrap;
   word-break: break-word;
   font: inherit;
-  line-height: 1.7;
+  line-height: 1.8;
   color: var(--portal-text-primary);
 }
 
 .chat-message__code-wrap {
   position: relative;
-  border: 1px solid var(--portal-border-strong);
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.24);
+  border: 1px solid var(--portal-border);
+  border-radius: 14px;
+  background: #f7fafc;
   padding: 14px;
 }
 
@@ -146,10 +205,9 @@ const copyBlock = async (value: string) => {
   align-items: center;
   gap: 6px;
   border: 1px solid var(--portal-border);
-  border-radius: 4px;
-  background: rgba(253, 252, 252, 0.04);
+  border-radius: 10px;
+  background: #ffffff;
   color: var(--portal-text-secondary);
-  font: inherit;
   padding: 4px 8px;
   cursor: pointer;
 }
@@ -158,8 +216,48 @@ const copyBlock = async (value: string) => {
   color: var(--portal-text-muted);
 }
 
-.chat-message__status--error,
-.chat-message__error-text {
+.chat-message__footer {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.chat-message__footer-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-message__footer-item--error .chat-message__footer-value {
   color: var(--portal-danger);
+}
+
+.chat-message__footer-value {
+  color: var(--portal-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.chat-message__footer-value--nowrap {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .chat-message,
+  .chat-message--user {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-message--user .chat-message__avatar {
+    order: 0;
+  }
+
+  .chat-message__bubble {
+    width: 100%;
+  }
 }
 </style>

@@ -60,7 +60,7 @@ const appendPrompt = (value: string) => {
           @update:value="emit('update:apiKeyId', $event as string)"
         />
       </div>
-      <a-button type="text" class="chat-composer__new" @click="emit('create')">
+      <a-button class="chat-composer__new" @click="emit('create')">
         <PlusOutlined />
         新建会话
       </a-button>
@@ -74,7 +74,8 @@ const appendPrompt = (value: string) => {
         :disabled="disabled"
         @keydown.enter.exact.prevent="sendNow"
       />
-      <div class="chat-composer__actions">
+
+      <div class="chat-composer__footer">
         <div class="chat-composer__chips">
           <span class="chat-composer__chips-label">推荐指令</span>
           <button
@@ -110,10 +111,10 @@ const appendPrompt = (value: string) => {
 .chat-composer {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 18px;
+  gap: 12px;
+  padding: 16px;
   border-top: 1px solid var(--portal-border);
-  background: rgba(48, 44, 44, 0.72);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, #ffffff 100%);
 }
 
 .chat-composer__toolbar {
@@ -140,25 +141,25 @@ const appendPrompt = (value: string) => {
 }
 
 .chat-composer__input-wrap {
-  border: 1px solid var(--portal-border-strong);
-  border-radius: 4px;
-  background: rgba(253, 252, 252, 0.02);
-  padding: 16px;
+  border: 1px solid var(--portal-border);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: var(--portal-shadow-ambient);
+  padding: 14px;
 }
 
 .chat-composer__textarea {
   width: 100%;
-  min-height: 112px;
+  min-height: 120px;
   resize: vertical;
   border: none;
   outline: none;
   background: transparent;
   color: var(--portal-text-primary);
-  font: inherit;
   line-height: 1.7;
 }
 
-.chat-composer__actions {
+.chat-composer__footer {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
@@ -175,19 +176,25 @@ const appendPrompt = (value: string) => {
 
 .chat-composer__chips-label {
   color: var(--portal-text-muted);
-  font-size: 11px;
-  letter-spacing: 0.14em;
+  font-size: 12px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
 .chat-composer__chip {
   border: 1px solid var(--portal-border);
   border-radius: 999px;
-  background: rgba(253, 252, 252, 0.04);
+  background: var(--portal-surface);
   color: var(--portal-text-secondary);
-  font: inherit;
   padding: 6px 12px;
   cursor: pointer;
+  transition: border-color 0.18s ease, color 0.18s ease, background-color 0.18s ease;
+}
+
+.chat-composer__chip:hover {
+  border-color: var(--portal-border-strong);
+  color: var(--portal-accent);
+  background: var(--portal-surface-raised);
 }
 
 .chat-composer__buttons {
@@ -196,7 +203,7 @@ const appendPrompt = (value: string) => {
 
 @media (max-width: 960px) {
   .chat-composer__toolbar,
-  .chat-composer__actions {
+  .chat-composer__footer {
     flex-direction: column;
     align-items: stretch;
   }

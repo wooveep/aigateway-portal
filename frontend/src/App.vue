@@ -4,66 +4,67 @@ import {
   CommentOutlined,
   FileTextOutlined,
   KeyOutlined,
-  LockOutlined,
+  MenuOutlined,
   RobotOutlined,
   TeamOutlined,
   WalletOutlined,
 } from '@ant-design/icons-vue';
 import type { MenuProps } from 'ant-design-vue';
 import { message } from 'ant-design-vue';
-import { computed, h } from 'vue';
+import { computed, h, onMounted, onUnmounted, shallowRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { logout } from './api';
 import { authState, clearAuth } from './auth';
+import ChangePasswordForm from './components/shell/ChangePasswordForm.vue';
+import PortalAccountMenu from './components/shell/PortalAccountMenu.vue';
+import PortalNav from './components/shell/PortalNav.vue';
+
+interface NavigationItem {
+  key: string;
+  label: string;
+  icon: () => ReturnType<typeof h>;
+  adminOnly?: boolean;
+}
 
 const route = useRoute();
 const router = useRouter();
 
-const isPublicPage = computed(() => route.path === '/login' || route.path === '/register');
-const selectedKeys = computed(() => [route.path]);
-const isChangePasswordPage = computed(() => route.path === '/change-password');
+const viewportWidth = shallowRef(typeof window === 'undefined' ? 1440 : window.innerWidth);
+const mobileNavOpen = shallowRef(false);
+const passwordModalOpen = shallowRef(false);
 
-const menuItems = computed<MenuProps['items']>(() => {
-  const items: MenuProps['items'] = [
-    {
-      key: '/billing',
-      icon: () => h(WalletOutlined),
-      label: '个人账单',
-    },
-    {
-      key: '/ai-chat',
-      icon: () => h(CommentOutlined),
-      label: 'AI 对话',
-    },
-    {
-      key: '/models',
-      icon: () => h(AppstoreOutlined),
-      label: '模型广场',
-    },
-    {
-      key: '/agents',
-      icon: () => h(RobotOutlined),
-      label: '智能体广场',
-    },
-    {
-      key: '/open-platform',
-      icon: () => h(KeyOutlined),
-      label: '开放平台',
-    },
-    {
-      key: '/invoices',
-      icon: () => h(FileTextOutlined),
-      label: '发票管理',
-    },
+const isPublicPage = computed(() => route.path === '/login' || route.path === '/register');
+const isMobile = computed(() => viewportWidth.value < 768);
+const isTablet = computed(() => viewportWidth.value >= 768 && viewportWidth.value < 1200);
+const selectedKeys = computed(() => [route.path]);
+
+const navigationItems = computed<NavigationItem[]>(() => {
+  const items: NavigationItem[] = [
+    { key: '/billing', label: '个人账单', icon: () => h(WalletOutlined) },
+    { key: '/ai-chat', label: 'AI 对话', icon: () => h(CommentOutlined) },
+    { key: '/models', label: '模型广场', icon: () => h(AppstoreOutlined) },
+    { key: '/agents', label: '智能体广场', icon: () => h(RobotOutlined) },
+    { key: '/open-platform', label: '开放平台', icon: () => h(KeyOutlined) },
+    { key: '/invoices', label: '发票管理', icon: () => h(FileTextOutlined) },
+    { key: '/accounts', label: '部门管理', icon: () => h(TeamOutlined), adminOnly: true },
   ];
-  if (authState.user?.isDepartmentAdmin) {
-    items.push({
-      key: '/accounts',
-      icon: () => h(TeamOutlined),
-      label: '部门管理',
-    });
+
+  return items.filter((item) => !item.adminOnly || authState.user?.isDepartmentAdmin);
+});
+
+const menuItems = computed<MenuProps['items']>(() =>
+  navigationItems.value.map((item) => ({
+    key: item.key,
+    icon: item.icon,
+    label: item.label,
+  })),
+);
+
+const currentRouteLabel = computed(() => {
+  if (route.path === '/change-password') {
+    return '修改密码';
   }
-  return items;
+  return navigationItems.value.find((item) => item.key === route.path)?.label || 'AIGateway';
 });
 
 const formatUserLevel = (value?: string) => {
@@ -74,12 +75,26 @@ const formatUserLevel = (value?: string) => {
   return 'Normal';
 };
 
-const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
-  router.push(String(key));
+const userDisplayName = computed(() => authState.user?.displayName || authState.user?.consumerName || 'Portal User');
+const userMetaLine = computed(() => {
+  const consumerName = authState.user?.consumerName || '-';
+  return `${consumerName} · Level ${formatUserLevel(authState.user?.userLevel)}`;
+});
+const userInitial = computed(() => userDisplayName.value.slice(0, 1).toUpperCase());
+
+const updateViewport = () => {
+  viewportWidth.value = window.innerWidth;
+  if (window.innerWidth >= 768) {
+    mobileNavOpen.value = false;
+  }
 };
 
-const goChangePassword = () => {
-  router.push('/change-password');
+const handleNavigate = (key: string) => {
+  router.push(key);
+};
+
+const openPasswordModal = () => {
+  passwordModalOpen.value = true;
 };
 
 const onLogout = async () => {
@@ -92,51 +107,99 @@ const onLogout = async () => {
   message.success('已退出登录');
   router.push('/login');
 };
+
+const handlePasswordSuccess = async () => {
+  passwordModalOpen.value = false;
+  clearAuth();
+  await router.replace('/login');
+};
+
+watch(() => route.path, () => {
+  mobileNavOpen.value = false;
+});
+
+onMounted(() => {
+  updateViewport();
+  window.addEventListener('resize', updateViewport);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('resize', updateViewport);
+});
 </script>
 
 <template>
   <router-view v-if="isPublicPage" />
 
-  <div v-else class="portal-shell">
-    <aside class="portal-shell__sidebar">
-      <div class="portal-shell__brand">
-        <div class="portal-shell__brand-mark">HG</div>
-        <div>
-          <div class="portal-shell__brand-title">AIGateway Portal</div>
-          <div class="portal-shell__brand-subtitle">Warm terminal for AI access</div>
-        </div>
-      </div>
+  <div
+    v-else
+    class="portal-shell"
+    :class="{
+      'portal-shell--tablet': isTablet,
+      'portal-shell--mobile': isMobile,
+    }"
+  >
+    <PortalNav
+      v-if="!isMobile"
+      :items="menuItems"
+      :selected-keys="selectedKeys"
+      :collapsed="isTablet"
+      @navigate="handleNavigate"
+    />
 
-      <a-menu
-        mode="inline"
-        :selected-keys="selectedKeys"
-        :items="menuItems"
-        class="portal-shell__menu"
-        @click="handleMenuClick"
-      />
-    </aside>
+    <PortalNav
+      v-else
+      mobile
+      :open="mobileNavOpen"
+      :items="menuItems"
+      :selected-keys="selectedKeys"
+      @navigate="handleNavigate"
+      @update:open="mobileNavOpen = $event"
+    />
 
     <main class="portal-shell__main">
       <header class="portal-shell__header">
-        <div>
-          <div class="portal-shell__eyebrow">Enterprise AI Open Platform</div>
-          <div class="portal-shell__header-title">统一管理模型、智能体、会话与 API Key</div>
+        <div class="portal-shell__header-main">
+          <button
+            v-if="isMobile"
+            class="portal-shell__nav-trigger"
+            type="button"
+            @click="mobileNavOpen = true"
+          >
+            <MenuOutlined />
+          </button>
+
+          <div class="portal-shell__header-copy">
+            <div class="portal-shell__header-title">{{ currentRouteLabel }}</div>
+          </div>
         </div>
 
-        <div class="portal-shell__header-actions">
-          <span class="portal-shell__pill">{{ authState.user?.displayName || authState.user?.consumerName }}</span>
-          <span class="portal-shell__pill">Level {{ formatUserLevel(authState.user?.userLevel) }}</span>
-          <a-button type="text" :disabled="isChangePasswordPage" @click="goChangePassword">
-            <LockOutlined />
-            修改密码
-          </a-button>
-          <a-button type="primary" @click="onLogout">退出登录</a-button>
-        </div>
+        <PortalAccountMenu
+          :display-name="userDisplayName"
+          :meta-line="userMetaLine"
+          :initial="userInitial"
+          @change-password="openPasswordModal"
+          @logout="onLogout"
+        />
       </header>
 
       <section class="portal-shell__content">
         <router-view />
       </section>
     </main>
+
+    <a-modal
+      v-model:open="passwordModalOpen"
+      title="修改密码"
+      :footer="null"
+      :width="480"
+      destroy-on-close
+    >
+      <ChangePasswordForm
+        :username="authState.user?.consumerName"
+        @cancel="passwordModalOpen = false"
+        @success="handlePasswordSuccess"
+      />
+    </a-modal>
   </div>
 </template>

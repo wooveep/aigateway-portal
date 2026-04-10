@@ -8,13 +8,9 @@ import { useAIChat } from '../composables/useAIChat';
 import { useManagedAccountScope } from '../composables/useManagedAccountScope';
 
 const {
-  hasManagedAccounts,
   loadingManagedAccounts,
   loadManagedAccounts,
-  scopeOptions,
   activeConsumerName,
-  currentScopeTitle,
-  updateScopeConsumerName,
 } = useManagedAccountScope();
 
 loadManagedAccounts();
@@ -75,49 +71,44 @@ const handleDeleteSession = async (sessionId: string) => {
   }
 };
 
-const handleSend = async (value: string) => {
+const handleSend = async (content: string) => {
   try {
-    await sendMessage(value);
-  } catch (error: any) {
-    message.error(error?.message || '发送失败');
+    await sendMessage(content);
+  } catch {
+    // inline error state is already rendered in the page and message bubble
   }
 };
+
+const statusLabel = computed(() => {
+  if (sending.value) {
+    return '流式响应中';
+  }
+  if (errorMessage.value) {
+    return '需要处理错误';
+  }
+  return '准备就绪';
+});
 </script>
 
 <template>
   <section class="portal-page portal-chat-page">
-    <div class="portal-page__header">
-      <div>
-        <div class="portal-page__eyebrow">AI Chat</div>
-        <h1 class="portal-page__title">AI 对话</h1>
-        <p class="portal-page__description">直接通过您自己的 API Key 调用已发布模型，会话历史持久化保存在 Portal 中。</p>
+    <div class="portal-metric-strip">
+      <div class="portal-metric">
+        <div class="portal-metric__label">历史会话</div>
+        <div class="portal-metric__value">{{ sessions.length }}</div>
       </div>
-
-      <div v-if="hasManagedAccounts" class="portal-page__scope">
-        <span>当前范围</span>
-        <a-select
-          :value="activeConsumerName"
-          :options="scopeOptions"
-          :loading="loadingManagedAccounts"
-          style="min-width: 260px"
-          @update:value="updateScopeConsumerName(($event as string) || '')"
-        />
+      <div class="portal-metric">
+        <div class="portal-metric__label">可选模型 / API Key</div>
+        <div class="portal-metric__value">{{ modelOptions.length }} / {{ apiKeyOptions.length }}</div>
+      </div>
+      <div class="portal-metric">
+        <div class="portal-metric__label">当前状态</div>
+        <div class="portal-metric__value">{{ statusLabel }}</div>
       </div>
     </div>
 
-    <div class="portal-hero-card portal-chat-page__status">
-      <div>
-        <div class="portal-kv__label">当前会话范围</div>
-        <div class="portal-kv__value">{{ currentScopeTitle }}</div>
-      </div>
-      <div>
-        <div class="portal-kv__label">可选模型 / API Key</div>
-        <div class="portal-kv__value">{{ modelOptions.length }} / {{ apiKeyOptions.length }}</div>
-      </div>
-      <div v-if="errorMessage" class="portal-kv portal-kv--danger">
-        <div class="portal-kv__label">错误</div>
-        <div class="portal-kv__value">{{ errorMessage }}</div>
-      </div>
+    <div v-if="errorMessage" class="portal-callout">
+      {{ errorMessage }}
     </div>
 
     <div class="portal-chat-shell">
@@ -157,25 +148,18 @@ const handleSend = async (value: string) => {
 
 <style scoped>
 .portal-chat-page {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.portal-chat-page__status {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
+  gap: 16px;
 }
 
 .portal-chat-shell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) 328px;
   min-height: calc(100vh - 250px);
-  border: 1px solid var(--portal-border-strong);
-  border-radius: 4px;
+  border: 1px solid var(--portal-border);
+  border-radius: 18px;
   overflow: hidden;
-  background: rgba(32, 29, 29, 0.92);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--portal-shadow-standard);
 }
 
 .portal-chat-shell__main {
@@ -189,25 +173,7 @@ const handleSend = async (value: string) => {
   min-width: 0;
 }
 
-.portal-kv__label {
-  color: var(--portal-text-muted);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-}
-
-.portal-kv__value {
-  margin-top: 6px;
-  color: var(--portal-text-primary);
-  font-size: 16px;
-}
-
-.portal-kv--danger .portal-kv__value {
-  color: var(--portal-danger);
-}
-
 @media (max-width: 1180px) {
-  .portal-chat-page__status,
   .portal-chat-shell {
     grid-template-columns: 1fr;
   }

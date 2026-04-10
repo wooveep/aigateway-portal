@@ -52,35 +52,14 @@ func (s *Service) ResolveScopeUser(ctx context.Context, consumerName string) (mo
 	return s.resolveScopeUser(ctx, consumerName)
 }
 
-func (s *Service) applyModelRequestURL(item model.ModelInfo) model.ModelInfo {
-	item.RequestURL = s.buildGatewayURL(item.Endpoint, "/v1/chat/completions", false)
+func (s *Service) applyModelRequestURL(ctx context.Context, item model.ModelInfo) model.ModelInfo {
+	resolver := s.newGatewayAddressResolver(ctx)
+	item.RequestURL = resolver.resolveURL(item.Endpoint, "/v1/chat/completions", false)
+	item.InternalRouteURL = ""
+	if strings.TrimSpace(item.InternalEndpoint) != "" {
+		item.InternalRouteURL = resolver.resolveURL(item.InternalEndpoint, "/v1/chat/completions", true)
+	}
 	return item
-}
-
-func (s *Service) buildGatewayURL(endpoint string, fallbackPath string, internal bool) string {
-	normalizedEndpoint := strings.TrimSpace(endpoint)
-	if normalizedEndpoint == "" || normalizedEndpoint == "-" {
-		normalizedEndpoint = strings.TrimSpace(fallbackPath)
-	}
-	if strings.HasPrefix(normalizedEndpoint, "http://") || strings.HasPrefix(normalizedEndpoint, "https://") {
-		return normalizedEndpoint
-	}
-	if !strings.HasPrefix(normalizedEndpoint, "/") {
-		normalizedEndpoint = "/" + normalizedEndpoint
-	}
-
-	baseURL := strings.TrimSpace(s.cfg.GatewayPublicBaseURL)
-	if internal {
-		baseURL = strings.TrimSpace(s.cfg.GatewayInternalBaseURL)
-		if baseURL == "" {
-			baseURL = strings.TrimSpace(s.cfg.GatewayPublicBaseURL)
-		}
-	}
-	baseURL = strings.TrimRight(baseURL, "/")
-	if baseURL == "" {
-		return normalizedEndpoint
-	}
-	return baseURL + normalizedEndpoint
 }
 
 func buildPortalMcpHTTPPath(mcpServerName string) string {

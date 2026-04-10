@@ -1,71 +1,104 @@
 <template>
-  <div>
-    <a-card title="开票信息管理">
+  <section class="portal-page">
+    <section class="portal-section">
+      <div class="portal-section__header">
+        <div>
+          <div class="portal-section__eyebrow">Profile</div>
+          <h2 class="portal-section__title">开票信息管理</h2>
+        </div>
+      </div>
+
       <a-form layout="vertical">
-        <a-row :gutter="16">
-          <a-col :xs="24" :md="12">
-            <a-form-item label="公司名称" required>
-              <a-input v-model:value="profile.companyName" />
-            </a-form-item>
-          </a-col>
-          <a-col :xs="24" :md="12">
-            <a-form-item label="税号" required>
-              <a-input v-model:value="profile.taxNo" />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-row :gutter="16">
-          <a-col :xs="24" :md="12">
-            <a-form-item label="地址" required>
-              <a-input v-model:value="profile.address" />
-            </a-form-item>
-          </a-col>
-          <a-col :xs="24" :md="12">
-            <a-form-item label="开户行及账号" required>
-              <a-input v-model:value="profile.bankAccount" />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-row :gutter="16">
-          <a-col :xs="24" :md="12">
-            <a-form-item label="收票人" required>
-              <a-input v-model:value="profile.receiver" />
-            </a-form-item>
-          </a-col>
-          <a-col :xs="24" :md="12">
-            <a-form-item label="邮箱" required>
-              <a-input v-model:value="profile.email" />
-            </a-form-item>
-          </a-col>
-        </a-row>
+        <div class="portal-grid portal-grid--two">
+          <a-form-item label="公司名称" required>
+            <a-input v-model:value="profile.companyName" />
+          </a-form-item>
+          <a-form-item label="税号" required>
+            <a-input v-model:value="profile.taxNo" />
+          </a-form-item>
+          <a-form-item label="地址" required>
+            <a-input v-model:value="profile.address" />
+          </a-form-item>
+          <a-form-item label="开户行及账号" required>
+            <a-input v-model:value="profile.bankAccount" />
+          </a-form-item>
+          <a-form-item label="收票人" required>
+            <a-input v-model:value="profile.receiver" />
+          </a-form-item>
+          <a-form-item label="邮箱" required>
+            <a-input v-model:value="profile.email" />
+          </a-form-item>
+        </div>
         <a-button type="primary" :loading="loading" @click="saveProfile">保存开票信息</a-button>
       </a-form>
-    </a-card>
+    </section>
 
-    <a-card title="申请开票" class="portal-card">
-      <a-form layout="inline" @finish="submitInvoice">
-        <a-form-item label="开票金额">
-          <a-input-number v-model:value="invoiceAmount" :min="1" :precision="2" />
-        </a-form-item>
-        <a-form-item label="备注">
-          <a-input v-model:value="invoiceRemark" placeholder="例如：3 月份账单" style="width: 280px" />
-        </a-form-item>
-        <a-form-item>
-          <a-button type="primary" html-type="submit" :loading="loading">提交开票申请</a-button>
-        </a-form-item>
+    <section class="portal-section">
+      <div class="portal-section__header">
+        <div>
+          <div class="portal-section__eyebrow">Create Invoice</div>
+          <h2 class="portal-section__title">申请开票</h2>
+        </div>
+      </div>
+
+      <a-form layout="vertical" @finish="submitInvoice">
+        <div class="portal-grid portal-grid--two">
+          <a-form-item label="开票金额">
+            <a-input-number v-model:value="invoiceAmount" :min="1" :precision="2" style="width: 100%" />
+          </a-form-item>
+          <a-form-item label="备注">
+            <a-input v-model:value="invoiceRemark" placeholder="例如：3 月份账单" />
+          </a-form-item>
+        </div>
+        <a-button type="primary" html-type="submit" :loading="loading">提交开票申请</a-button>
       </a-form>
-    </a-card>
+    </section>
 
-    <a-card title="开票记录" class="portal-card">
-      <a-table :columns="invoiceColumns" :data-source="records" row-key="id" :pagination="{ pageSize: 5 }">
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.dataIndex === 'status'">
-            <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
-          </template>
-        </template>
-      </a-table>
-    </a-card>
-  </div>
+    <section class="portal-section">
+      <div class="portal-section__header">
+        <div>
+          <div class="portal-section__eyebrow">Records</div>
+          <h2 class="portal-section__title">开票记录</h2>
+        </div>
+      </div>
+
+      <div v-if="loading" class="portal-stack">
+        <a-skeleton active :paragraph="{ rows: 4 }" />
+      </div>
+      <div v-else-if="!records.length" class="portal-empty">
+        <div class="portal-empty__title">还没有开票记录</div>
+      </div>
+      <div v-else class="portal-stack">
+        <article v-for="record in records" :key="record.id" class="portal-record">
+          <div class="portal-record__header">
+            <div>
+              <div class="portal-record__title">{{ record.title }}</div>
+              <div class="portal-record__subtitle">{{ formatDateTimeDisplay(record.createdAt) }}</div>
+            </div>
+            <span class="portal-status" :class="statusClass(record.status)">{{ statusText(record.status) }}</span>
+          </div>
+          <div class="portal-data-grid">
+            <div class="portal-data-item">
+              <div class="portal-data-item__label">申请编号</div>
+              <div class="portal-data-item__value portal-data-item__value--nowrap">{{ record.id }}</div>
+            </div>
+            <div class="portal-data-item">
+              <div class="portal-data-item__label">税号</div>
+              <div class="portal-data-item__value portal-data-item__value--nowrap">{{ record.taxNo }}</div>
+            </div>
+            <div class="portal-data-item">
+              <div class="portal-data-item__label">金额</div>
+              <div class="portal-data-item__value">¥{{ Number(record.amount).toFixed(2) }}</div>
+            </div>
+            <div class="portal-data-item">
+              <div class="portal-data-item__label">备注</div>
+              <div class="portal-data-item__value">{{ record.remark || '-' }}</div>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+  </section>
 </template>
 
 <script setup lang="ts">
@@ -78,7 +111,6 @@ import {
 import type { InvoiceProfile, InvoiceRecord } from '../types';
 import { formatDateTimeDisplay } from '../utils/time';
 import { message } from 'ant-design-vue';
-import type { TableColumnsType } from 'ant-design-vue';
 import { onMounted, reactive, ref } from 'vue';
 
 const loading = ref(false);
@@ -96,29 +128,11 @@ const records = ref<InvoiceRecord[]>([]);
 const invoiceAmount = ref(100);
 const invoiceRemark = ref('');
 
-const invoiceColumns: TableColumnsType<InvoiceRecord> = [
-  { title: '申请编号', dataIndex: 'id' },
-  { title: '抬头', dataIndex: 'title' },
-  { title: '税号', dataIndex: 'taxNo' },
-  {
-    title: '金额',
-    dataIndex: 'amount',
-    customRender: ({ value }) => `¥${Number(value).toFixed(2)}`,
-  },
-  { title: '状态', dataIndex: 'status' },
-  {
-    title: '申请时间',
-    dataIndex: 'createdAt',
-    customRender: ({ value }) => formatDateTimeDisplay(String(value ?? '')),
-  },
-  { title: '备注', dataIndex: 'remark' },
-];
-
-const statusColor = (status: string) => {
-  if (status === 'issued') return 'green';
-  if (status === 'approved') return 'blue';
-  if (status === 'rejected') return 'red';
-  return 'gold';
+const statusClass = (status: string) => {
+  if (status === 'issued') return 'portal-status--success';
+  if (status === 'approved') return 'portal-status--success';
+  if (status === 'rejected') return 'portal-status--danger';
+  return 'portal-status--warning';
 };
 
 const statusText = (status: string) => {

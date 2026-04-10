@@ -118,6 +118,20 @@ spec:
               value: {{ .Values.backend.shutdownGraceSeconds | quote }}
             - name: PORTAL_DISPLAY_NAME
               value: {{ .Values.backend.displayName | quote }}
+            {{- if .Values.backend.gateway.publicBaseURL }}
+            - name: PORTAL_GATEWAY_PUBLIC_BASE_URL
+              value: {{ .Values.backend.gateway.publicBaseURL | quote }}
+            {{- end }}
+            {{- if .Values.backend.gateway.internalBaseURL }}
+            - name: PORTAL_GATEWAY_INTERNAL_BASE_URL
+              value: {{ .Values.backend.gateway.internalBaseURL | quote }}
+            {{- end }}
+            {{- if .Values.backend.gateway.publicHostFallback }}
+            - name: PORTAL_GATEWAY_PUBLIC_HOST_FALLBACK
+              value: {{ .Values.backend.gateway.publicHostFallback | quote }}
+            {{- end }}
+            - name: PORTAL_GATEWAY_SERVICE_NAME
+              value: {{ default "aigateway-gateway" .Values.backend.gateway.serviceName | quote }}
           ports:
             - name: http
               containerPort: {{ include "aigateway-portal.service.port" . | int }}

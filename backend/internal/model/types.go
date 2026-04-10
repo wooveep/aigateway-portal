@@ -120,6 +120,9 @@ type ModelInfo struct {
 	OutputTokenPrice float64           `json:"outputTokenPrice"`
 	Endpoint         string            `json:"endpoint"`
 	RequestURL       string            `json:"requestUrl,omitempty"`
+	InternalEndpoint string            `json:"-"`
+	InternalRouteURL string            `json:"-"`
+	RouteModel       string            `json:"-"`
 	SDK              string            `json:"sdk"`
 	UpdatedAt        string            `json:"updatedAt"`
 	Summary          string            `json:"summary"`

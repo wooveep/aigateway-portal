@@ -50,7 +50,7 @@ const submitRename = (sessionId: string) => {
         <div class="chat-sidebar__eyebrow">History</div>
         <div class="chat-sidebar__title">历史会话</div>
       </div>
-      <a-button type="text" class="chat-sidebar__create" @click="emit('create')">
+      <a-button type="primary" class="chat-sidebar__create" @click="emit('create')">
         <PlusOutlined />
         新建
       </a-button>
@@ -61,7 +61,7 @@ const submitRename = (sessionId: string) => {
     </div>
 
     <div v-else-if="emptyState" class="chat-sidebar__state chat-sidebar__state--empty">
-      <div>还没有历史会话</div>
+      <div class="chat-sidebar__empty-title">还没有历史会话</div>
       <a-button type="primary" size="small" @click="emit('create')">新建第一个会话</a-button>
     </div>
 
@@ -124,8 +124,8 @@ const submitRename = (sessionId: string) => {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  border-left: 1px solid var(--portal-border-strong);
-  background: rgba(48, 44, 44, 0.48);
+  border-left: 1px solid var(--portal-border);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 }
 
 .chat-sidebar__header {
@@ -133,21 +133,23 @@ const submitRename = (sessionId: string) => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 18px 18px 14px;
+  padding: 18px;
   border-bottom: 1px solid var(--portal-border);
 }
 
 .chat-sidebar__eyebrow {
   color: var(--portal-text-muted);
-  font-size: 11px;
-  letter-spacing: 0.16em;
+  font-size: 12px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
 .chat-sidebar__title {
   margin-top: 4px;
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 18px;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  color: var(--portal-text-primary);
 }
 
 .chat-sidebar__create {
@@ -160,7 +162,7 @@ const submitRename = (sessionId: string) => {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 8px;
+  padding: 10px;
 }
 
 .chat-sidebar__item {
@@ -170,18 +172,18 @@ const submitRename = (sessionId: string) => {
   justify-content: space-between;
   gap: 12px;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: 8px;
   background: transparent;
   color: inherit;
   text-align: left;
   padding: 12px;
-  transition: border-color 120ms ease, background-color 120ms ease;
+  transition: border-color 120ms ease, background-color 120ms ease, transform 120ms ease;
 }
 
 .chat-sidebar__item:hover,
 .chat-sidebar__item--active {
-  border-color: var(--portal-border-strong);
-  background: rgba(253, 252, 252, 0.03);
+  border-color: rgba(15, 118, 110, 0.16);
+  background: rgba(15, 118, 110, 0.06);
 }
 
 .chat-sidebar__item + .chat-sidebar__item {
@@ -194,8 +196,8 @@ const submitRename = (sessionId: string) => {
 }
 
 .chat-sidebar__item-title {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   line-height: 1.4;
   color: var(--portal-text-primary);
 }
@@ -204,9 +206,9 @@ const submitRename = (sessionId: string) => {
   margin-top: 6px;
   color: var(--portal-text-secondary);
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.6;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -232,11 +234,10 @@ const submitRename = (sessionId: string) => {
 
 .chat-sidebar__rename-input {
   width: 100%;
-  border: 1px solid var(--portal-border-strong);
-  border-radius: 4px;
-  background: rgba(253, 252, 252, 0.04);
+  border: 1px solid var(--portal-accent);
+  border-radius: 6px;
+  background: #ffffff;
   color: var(--portal-text-primary);
-  font: inherit;
   padding: 8px 10px;
 }
 
@@ -249,5 +250,15 @@ const submitRename = (sessionId: string) => {
   flex-direction: column;
   gap: 12px;
   color: var(--portal-text-secondary);
+}
+
+.chat-sidebar__empty-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--portal-text-primary);
+}
+
+.chat-sidebar__empty-text {
+  line-height: 1.7;
 }
 </style>

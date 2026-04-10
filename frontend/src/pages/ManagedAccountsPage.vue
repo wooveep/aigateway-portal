@@ -1,92 +1,90 @@
 <template>
-  <div>
-    <a-alert
-      type="info"
-      show-icon
-      class="portal-card"
-      message="当前页面仅部门管理员可见"
-      description="这里展示当前管理员负责部门及其所有子部门的成员、余额和账单操作范围。"
-    />
+  <section class="portal-page">
+    <div class="portal-metric-strip">
+      <div class="portal-metric">
+        <div class="portal-metric__label">可管理账号</div>
+        <div class="portal-metric__value">{{ managedAccounts.length }}</div>
+      </div>
+      <div class="portal-metric">
+        <div class="portal-metric__label">账号总余额</div>
+        <div class="portal-metric__value">¥{{ Number(totalBalance).toFixed(2) }}</div>
+      </div>
+      <div class="portal-metric">
+        <div class="portal-metric__label">账号累计消费</div>
+        <div class="portal-metric__value">¥{{ Number(totalConsumption).toFixed(2) }}</div>
+      </div>
+    </div>
 
-    <a-row :gutter="16">
-      <a-col :xs="24" :md="8">
-        <a-card>
-          <a-statistic title="可管理账号" :value="managedAccounts.length" />
-        </a-card>
-      </a-col>
-      <a-col :xs="24" :md="8">
-        <a-card>
-          <a-statistic title="账号总余额" :value="Number(totalBalance)" :precision="2" prefix="¥" />
-        </a-card>
-      </a-col>
-      <a-col :xs="24" :md="8">
-        <a-card>
-          <a-statistic title="账号累计消费" :value="Number(totalConsumption)" :precision="2" prefix="¥" />
-        </a-card>
-      </a-col>
-    </a-row>
-
-    <a-card title="部门树" class="portal-card">
+    <section class="portal-section">
+      <div class="portal-section__header">
+        <div>
+          <div class="portal-section__eyebrow">Department Tree</div>
+          <h2 class="portal-section__title">部门树</h2>
+        </div>
+      </div>
       <a-empty v-if="!managedDepartments.length && !pageLoading" description="暂无可管理部门" />
       <a-tree
         v-else
         :tree-data="departmentTreeData"
         default-expand-all
       />
-    </a-card>
+    </section>
 
-    <a-card title="部门成员列表" class="portal-card">
-      <template #extra>
+    <section class="portal-section">
+      <div class="portal-section__header">
+        <div>
+          <div class="portal-section__eyebrow">Members</div>
+          <h2 class="portal-section__title">部门成员列表</h2>
+        </div>
         <a-button @click="loadData" :loading="pageLoading">刷新</a-button>
-      </template>
+      </div>
 
       <a-empty v-if="!managedAccounts.length && !pageLoading" description="当前部门下暂无可管理成员" />
+      <div v-else class="portal-stack">
+        <article v-for="record in managedAccounts" :key="record.consumerName" class="portal-record">
+          <div class="portal-record__header">
+            <div>
+              <div class="portal-record__title">{{ record.displayName || record.consumerName }}</div>
+              <div class="portal-record__subtitle">{{ record.consumerName }} · {{ record.email || '未设置邮箱' }}</div>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+              <span class="portal-status portal-status--success">{{ formatUserLevel(record.userLevel) }}</span>
+              <span class="portal-status" :class="statusClass(record.status)">{{ formatStatus(record.status) }}</span>
+            </div>
+          </div>
 
-      <a-table
-        v-else
-        :columns="columns"
-        :data-source="managedAccounts"
-        row-key="consumerName"
-        :loading="pageLoading"
-        :pagination="{ pageSize: 8 }"
-      >
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.dataIndex === 'account'">
-            <div class="account-name">{{ record.displayName || record.consumerName }}</div>
-            <div class="account-subtitle">{{ record.consumerName }}</div>
-          </template>
+          <div class="portal-data-grid">
+            <div class="portal-data-item">
+              <div class="portal-data-item__label">所属部门</div>
+              <div class="portal-data-item__value">{{ record.departmentName || '未分配部门' }}</div>
+            </div>
+            <div class="portal-data-item">
+              <div class="portal-data-item__label">Department Path</div>
+              <div class="portal-data-item__value portal-data-item__value--nowrap">{{ record.departmentPath || '未分配部门' }}</div>
+            </div>
+            <div class="portal-data-item">
+              <div class="portal-data-item__label">当前余额</div>
+              <div class="portal-data-item__value">¥{{ Number(record.balance || 0).toFixed(2) }}</div>
+            </div>
+            <div class="portal-data-item">
+              <div class="portal-data-item__label">累计消费</div>
+              <div class="portal-data-item__value">¥{{ Number(record.totalConsumption || 0).toFixed(2) }}</div>
+            </div>
+            <div class="portal-data-item">
+              <div class="portal-data-item__label">启用 Key</div>
+              <div class="portal-data-item__value">{{ record.activeKeys }}</div>
+            </div>
+          </div>
 
-          <template v-if="column.dataIndex === 'department'">
-            <span>{{ record.departmentPath || '未分配部门' }}</span>
-          </template>
-
-          <template v-if="column.dataIndex === 'userLevel'">
-            <a-tag color="blue">{{ formatUserLevel(record.userLevel) }}</a-tag>
-          </template>
-
-          <template v-if="column.dataIndex === 'status'">
-            <a-tag :color="statusColor(record.status)">{{ formatStatus(record.status) }}</a-tag>
-          </template>
-
-          <template v-if="column.dataIndex === 'balance'">
-            <span>¥{{ Number(record.balance || 0).toFixed(2) }}</span>
-          </template>
-
-          <template v-if="column.dataIndex === 'totalConsumption'">
-            <span>¥{{ Number(record.totalConsumption || 0).toFixed(2) }}</span>
-          </template>
-
-          <template v-if="column.dataIndex === 'operation'">
-            <a-space wrap>
-              <a-button type="link" @click="openProfileModal(record)">账号设置</a-button>
-              <a-button type="link" @click="openBalanceModal(record)">调整余额</a-button>
-              <a-button type="link" @click="goBilling(record.consumerName)">账单</a-button>
-              <a-button type="link" @click="goOpenPlatform(record.consumerName)">API Key</a-button>
-            </a-space>
-          </template>
-        </template>
-      </a-table>
-    </a-card>
+          <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px;">
+            <a-button @click="openProfileModal(record)">账号设置</a-button>
+            <a-button @click="openBalanceModal(record)">调整余额</a-button>
+            <a-button @click="goBilling(record.consumerName)">账单</a-button>
+            <a-button @click="goOpenPlatform(record.consumerName)">API Key</a-button>
+          </div>
+        </article>
+      </div>
+    </section>
 
     <a-modal
       v-model:open="showProfileModal"
@@ -113,13 +111,9 @@
       :confirm-loading="submittingBalance"
       @ok="submitBalanceAdjustment"
     >
-      <a-alert
-        type="info"
-        show-icon
-        class="balance-alert"
-        message="支持正负金额"
-        description="输入正数表示增加余额，输入负数表示扣减余额。"
-      />
+      <div class="portal-callout" style="margin-bottom: 16px;">
+        支持正负金额。输入正数表示增加余额，输入负数表示扣减余额。
+      </div>
       <a-form layout="vertical">
         <a-form-item label="账号">
           <a-input :value="currentAccountLabel" disabled />
@@ -132,7 +126,7 @@
         </a-form-item>
       </a-form>
     </a-modal>
-  </div>
+  </section>
 </template>
 
 <script setup lang="ts">
@@ -140,7 +134,6 @@ import { adjustManagedAccountBalance, fetchManagedDepartments, updateManagedAcco
 import { useManagedAccountScope } from '../composables/useManagedAccountScope';
 import type { ManagedAccountSummary, ManagedDepartmentNode } from '../types';
 import { message } from 'ant-design-vue';
-import type { TableColumnsType } from 'ant-design-vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
@@ -166,6 +159,12 @@ const balanceForm = reactive({
   reason: '',
 });
 
+type DepartmentTreeItem = {
+  key: string;
+  title: string;
+  children: DepartmentTreeItem[];
+};
+
 const totalBalance = computed(() =>
   managedAccounts.value.reduce((sum, item) => sum + Number(item.balance || 0), 0).toFixed(2),
 );
@@ -179,7 +178,7 @@ const currentAccountLabel = computed(() => {
   return `${currentAccount.value.displayName || currentAccount.value.consumerName}（${currentAccount.value.consumerName}）`;
 });
 const departmentTreeData = computed(() => {
-  const build = (nodes: ManagedDepartmentNode[] = []) =>
+  const build = (nodes: ManagedDepartmentNode[] = []): DepartmentTreeItem[] =>
     nodes.map((node) => ({
       key: node.departmentId,
       title: `${node.name} / 管理员：${node.adminConsumerName || '未设置'} / 成员：${node.memberCount}`,
@@ -199,18 +198,6 @@ const statusOptions = [
   { label: '启用', value: 'active' },
   { label: '禁用', value: 'disabled' },
   { label: '待激活', value: 'pending' },
-];
-
-const columns: TableColumnsType<ManagedAccountSummary> = [
-  { title: '成员账号', dataIndex: 'account' },
-  { title: '邮箱', dataIndex: 'email' },
-  { title: '所属部门', dataIndex: 'department' },
-  { title: '用户等级', dataIndex: 'userLevel' },
-  { title: '状态', dataIndex: 'status' },
-  { title: '当前余额', dataIndex: 'balance' },
-  { title: '累计消费', dataIndex: 'totalConsumption' },
-  { title: '启用 Key', dataIndex: 'activeKeys' },
-  { title: '操作', dataIndex: 'operation', width: 280 },
 ];
 
 const getErrorMessage = (error: unknown, fallback: string) => {
@@ -236,11 +223,11 @@ const formatStatus = (value: string) => {
   return '启用';
 };
 
-const statusColor = (value: string) => {
+const statusClass = (value: string) => {
   const normalized = String(value || '').toLowerCase();
-  if (normalized === 'disabled') return 'red';
-  if (normalized === 'pending') return 'gold';
-  return 'green';
+  if (normalized === 'disabled') return 'portal-status--danger';
+  if (normalized === 'pending') return 'portal-status--warning';
+  return 'portal-status--success';
 };
 
 const loadData = async () => {
@@ -326,18 +313,3 @@ const goOpenPlatform = (consumerName: string) => {
 
 onMounted(loadData);
 </script>
-
-<style scoped>
-.account-name {
-  font-weight: 600;
-}
-
-.account-subtitle {
-  color: #667085;
-  font-size: 12px;
-}
-
-.balance-alert {
-  margin-bottom: 16px;
-}
-</style>

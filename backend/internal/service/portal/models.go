@@ -19,13 +19,21 @@ type publishedBindingModel struct {
 	ModelInfo model.ModelInfo
 }
 
+type discoveredModelEndpoints struct {
+	PublicPath   string
+	InternalPath string
+	RouteModel   string
+}
+
 func (s *Service) ListModels(ctx context.Context, user model.AuthUser) ([]model.ModelInfo, error) {
 	items, err := s.listVisibleModelsFromPublishedBindings(ctx, user)
 	if err != nil {
 		return nil, apperr.New(503, "model catalog unavailable", err.Error())
 	}
+	resolver := s.newGatewayAddressResolver(ctx)
 	for index := range items {
-		items[index] = s.applyModelRequestURL(items[index])
+		items[index] = s.applyDiscoveredModelEndpoint(ctx, items[index])
+		items[index].RequestURL = resolver.resolveURL(items[index].Endpoint, "/v1/chat/completions", false)
 	}
 	return items, nil
 }
@@ -38,12 +46,66 @@ func (s *Service) GetModelDetail(ctx context.Context, id string, user model.Auth
 
 	item, err := s.getVisibleModelFromPublishedBindings(ctx, targetID, user)
 	if err == nil && strings.TrimSpace(item.ID) != "" {
-		return s.applyModelRequestURL(item), nil
+		item = s.applyDiscoveredModelEndpoint(ctx, item)
+		return s.applyModelRequestURL(ctx, item), nil
 	}
 	if err != nil {
 		return model.ModelInfo{}, apperr.New(503, "model catalog unavailable", err.Error())
 	}
 	return model.ModelInfo{}, apperr.New(404, "model not found")
+}
+
+func (s *Service) applyDiscoveredModelEndpoint(ctx context.Context, item model.ModelInfo) model.ModelInfo {
+	currentEndpoint := strings.TrimSpace(item.Endpoint)
+	if currentEndpoint != "" && currentEndpoint != "-" &&
+		strings.HasPrefix(currentEndpoint, "/") &&
+		strings.TrimSpace(item.InternalEndpoint) != "" {
+		return item
+	}
+	discovered := s.lookupPublishedModelEndpoint(ctx, item)
+	if discovered.PublicPath == "" && discovered.InternalPath == "" {
+		return item
+	}
+	if discovered.PublicPath != "" {
+		item.Endpoint = discovered.PublicPath
+	}
+	if discovered.InternalPath != "" {
+		item.InternalEndpoint = discovered.InternalPath
+		item.InternalRouteURL = discovered.InternalPath
+	}
+	if discovered.RouteModel != "" {
+		item.RouteModel = discovered.RouteModel
+	}
+	return item
+}
+
+func (s *Service) lookupPublishedModelEndpoint(ctx context.Context, item model.ModelInfo) discoveredModelEndpoints {
+	if s.modelK8s == nil {
+		return discoveredModelEndpoints{}
+	}
+	models, err := s.modelK8s.ListEnabledModels(ctx)
+	if err != nil {
+		return discoveredModelEndpoints{}
+	}
+	candidates := []string{
+		strings.TrimSpace(item.ID),
+		strings.TrimSpace(item.Name),
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		for _, modelItem := range models {
+			if strings.EqualFold(strings.TrimSpace(modelItem.ID), candidate) {
+				return discoveredModelEndpoints{
+					PublicPath:   strings.TrimSpace(modelItem.Endpoint),
+					InternalPath: strings.TrimSpace(modelItem.InternalEndpoint),
+					RouteModel:   strings.TrimSpace(modelItem.RouteModel),
+				}
+			}
+		}
+	}
+	return discoveredModelEndpoints{}
 }
 
 func (s *Service) GetOpenStats(ctx context.Context, consumerName string) (model.OpenStats, error) {

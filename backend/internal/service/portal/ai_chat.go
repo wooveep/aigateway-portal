@@ -12,13 +12,14 @@ import (
 	"time"
 
 	"github.com/gogf/gf/v2/errors/gerror"
+	"github.com/gogf/gf/v2/frame/g"
 
 	"higress-portal-backend/internal/apperr"
 	"higress-portal-backend/internal/model"
 )
 
 const (
-	chatSessionDefaultTitle   = "新对话"
+	chatSessionDefaultTitle    = "新对话"
 	chatMessageStatusStreaming = "streaming"
 	chatMessageStatusSucceeded = "succeeded"
 	chatMessageStatusFailed    = "failed"
@@ -259,9 +260,28 @@ func (s *Service) StreamChatMessage(ctx context.Context, consumerName string, se
 		return s.emitChatStreamError(emitter, assistantMessageID, "history_load_failed", "加载会话历史失败")
 	}
 
-	requestURL := s.buildGatewayURL(modelInfo.Endpoint, "/v1/chat/completions", true)
+	resolver := s.newGatewayAddressResolver(ctx)
+	requestTarget := resolvedGatewayTarget{}
+	accessSurface := "internal"
+	if strings.TrimSpace(modelInfo.InternalEndpoint) != "" {
+		requestTarget = resolver.resolveTarget(modelInfo.InternalEndpoint, "/v1/chat/completions", true)
+	} else {
+		requestTarget = resolver.resolveTarget(modelInfo.Endpoint, "/v1/chat/completions", true)
+		accessSurface = "public-fallback"
+	}
+	requestURL := strings.TrimSpace(requestTarget.URL)
+	if !isAbsoluteGatewayURL(requestURL) {
+		message := "未解析到模型调用地址，请先在网关配置可访问路由或补充 Portal 网关地址兜底配置"
+		_ = s.finishAssistantMessage(ctx, assistantMessageID, chatMessageStatusFailed, "", "", 0, message)
+		return s.emitChatStreamError(emitter, assistantMessageID, "gateway_unresolved", message)
+	}
+	upstreamModelID := strings.TrimSpace(modelInfo.ID)
+	routeModel := strings.TrimSpace(modelInfo.RouteModel)
+	if routeModel != "" {
+		upstreamModelID = routeModel
+	}
 	payload := map[string]any{
-		"model":    modelInfo.ID,
+		"model":    upstreamModelID,
 		"messages": history,
 		"stream":   true,
 	}
@@ -274,6 +294,16 @@ func (s *Service) StreamChatMessage(ctx context.Context, consumerName string, se
 	upstreamReq.Header.Set("Content-Type", "application/json")
 	upstreamReq.Header.Set("Accept", "text/event-stream")
 	upstreamReq.Header.Set("x-api-key", apiKeyRow.RawKey)
+	if routeModel != "" {
+		upstreamReq.Header.Set("x-higress-llm-model", routeModel)
+	}
+	if hostHeader := strings.TrimSpace(requestTarget.HostHeader); hostHeader != "" {
+		upstreamReq.Host = hostHeader
+		upstreamReq.Header.Set("Host", hostHeader)
+	}
+
+	s.logf(ctx, "portal ai chat upstream request session=%s model=%s upstreamModel=%s apiKey=%s access=%s host=%s url=%s",
+		sessionID, modelInfo.ID, upstreamModelID, apiKeyID, accessSurface, strings.TrimSpace(requestTarget.HostHeader), requestURL)
 
 	resp, err := s.streamClient.Do(upstreamReq)
 	if err != nil {
@@ -296,6 +326,10 @@ func (s *Service) StreamChatMessage(ctx context.Context, consumerName string, se
 	if traceID == "" {
 		traceID = strings.TrimSpace(resp.Header.Get("Traceparent"))
 	}
+	g.Log().Infof(ctx,
+		"portal ai chat upstream response session=%s model=%s access=%s status=%d requestId=%s traceId=%s host=%s url=%s",
+		sessionID, modelInfo.ID, accessSurface, resp.StatusCode, requestID, traceID,
+		strings.TrimSpace(requestTarget.HostHeader), requestURL)
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		message := trimPreview(string(responseBody), 240)
@@ -423,7 +457,8 @@ func (s *Service) requireVisibleModelForConsumer(ctx context.Context, consumerNa
 	if strings.TrimSpace(item.ID) == "" {
 		return model.ModelInfo{}, apperr.New(404, "model not found")
 	}
-	return s.applyModelRequestURL(item), nil
+	item = s.applyDiscoveredModelEndpoint(ctx, item)
+	return s.applyModelRequestURL(ctx, item), nil
 }
 
 func (s *Service) requireUsableAPIKey(ctx context.Context, consumerName string, apiKeyID string) (*model.APIKeyRow, error) {

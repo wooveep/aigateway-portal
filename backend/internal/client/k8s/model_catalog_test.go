@@ -44,6 +44,21 @@ func TestBuildGatewayEndpoint(t *testing.T) {
 	}
 }
 
+func TestBuildInternalGatewayEndpoint(t *testing.T) {
+	t.Parallel()
+
+	got := buildInternalGatewayEndpoint(
+		"/internal/ai-routes/doubao",
+		"/doubao",
+		"openai",
+		"/doubao/v1/chat/completions",
+	)
+	want := "/internal/ai-routes/doubao/v1/chat/completions"
+	if got != want {
+		t.Fatalf("buildInternalGatewayEndpoint() = %q, want %q", got, want)
+	}
+}
+
 func TestNormalizeDestinationRegistryName(t *testing.T) {
 	t.Parallel()
 
@@ -66,5 +81,16 @@ func TestExtractExactModelHeader(t *testing.T) {
 	got := extractExactModelHeader(object)
 	if got != "doubao-seed-2-0-pro-260215" {
 		t.Fatalf("extractExactModelHeader() = %q, want %q", got, "doubao-seed-2-0-pro-260215")
+	}
+}
+
+func TestIsInternalAIRoutePath(t *testing.T) {
+	t.Parallel()
+
+	if !isInternalAIRoutePath("/internal/ai-routes/ai-route-doubao.internal") {
+		t.Fatalf("expected internal ai route path to be detected")
+	}
+	if isInternalAIRoutePath("/doubao") {
+		t.Fatalf("expected public route path not to be treated as internal")
 	}
 }

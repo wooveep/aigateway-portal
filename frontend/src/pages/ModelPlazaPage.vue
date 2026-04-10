@@ -13,13 +13,8 @@ const detailVisible = ref(false);
 const loading = ref(false);
 
 const {
-  hasManagedAccounts,
-  loadingManagedAccounts,
   loadManagedAccounts,
-  scopeOptions,
   activeConsumerName,
-  currentScopeTitle,
-  updateScopeConsumerName,
 } = useManagedAccountScope();
 
 const emptyState = computed(() => !loading.value && models.value.length === 0);
@@ -78,75 +73,58 @@ watch(() => activeConsumerName.value, () => {
 
 <template>
   <section class="portal-page">
-    <div class="portal-page__header">
-      <div>
-        <div class="portal-page__eyebrow">Models</div>
-        <h1 class="portal-page__title">模型广场</h1>
-        <p class="portal-page__description">这里只展示当前作用域下可见且已发布的模型，调用地址直接使用网关公开地址，不再展示 placeholder 域名。</p>
-      </div>
-
-      <div class="portal-page__scope">
-        <span>当前范围</span>
-        <a-select
-          v-if="hasManagedAccounts"
-          :value="activeConsumerName"
-          :options="scopeOptions"
-          :loading="loadingManagedAccounts"
-          style="min-width: 260px"
-          @update:value="updateScopeConsumerName(($event as string) || '')"
-        />
-        <span v-else class="portal-page__scope-text">{{ currentScopeTitle }}</span>
+    <div class="portal-metric-strip">
+      <div class="portal-metric">
+        <div class="portal-metric__label">可见模型</div>
+        <div class="portal-metric__value">{{ models.length }}</div>
       </div>
     </div>
 
-    <div class="portal-hero-card portal-page__summary">
-      <div>
-        <div class="portal-kv__label">可见模型</div>
-        <div class="portal-kv__value">{{ models.length }}</div>
-      </div>
-      <div>
-        <div class="portal-kv__label">当前作用域</div>
-        <div class="portal-kv__value">{{ currentScopeTitle }}</div>
-      </div>
-    </div>
-
-    <div v-if="loading" class="portal-hero-card">
+    <section v-if="loading" class="portal-section">
       <a-skeleton active :paragraph="{ rows: 6 }" />
-    </div>
+    </section>
 
-    <div v-else-if="emptyState" class="portal-hero-card portal-empty">
+    <section v-else-if="emptyState" class="portal-section portal-empty">
       <div class="portal-empty__title">当前范围下没有可见模型</div>
-      <div class="portal-empty__text">请检查模型资产发布状态和绑定授权，或切换到其他账号范围查看。</div>
-    </div>
+    </section>
 
-    <div v-else class="portal-card-grid">
-      <article v-for="item in models" :key="item.id" class="portal-list-card">
-        <div class="portal-list-card__header">
+    <div v-else class="portal-grid portal-grid--cards">
+      <article v-for="item in models" :key="item.id" class="portal-record portal-model-card">
+        <div class="portal-record__header">
           <div>
-            <div class="portal-list-card__title">{{ item.name }}</div>
-            <div class="portal-list-card__subtitle">{{ item.vendor }}</div>
+            <div class="portal-record__title">{{ item.name }}</div>
+            <div class="portal-record__subtitle">{{ item.vendor }}</div>
           </div>
-          <div class="portal-list-card__badge">{{ item.sdk }}</div>
+          <span class="portal-pill">{{ item.sdk || 'OpenAI-compatible' }}</span>
         </div>
 
-        <p class="portal-list-card__intro">{{ buildCapabilityText(item) }}</p>
+        <div class="portal-record__summary portal-model-card__summary">{{ item.summary || buildCapabilityText(item) }}</div>
 
-        <div class="portal-list-card__meta">
-          <span>输入 {{ item.pricing?.inputPer1K ?? item.inputTokenPrice }} / 1K</span>
-          <span>输出 {{ item.pricing?.outputPer1K ?? item.outputTokenPrice }} / 1K</span>
+        <div class="portal-data-grid">
+          <div class="portal-data-item">
+            <div class="portal-data-item__label">能力</div>
+            <div class="portal-data-item__value">{{ buildCapabilityText(item) }}</div>
+          </div>
+          <div class="portal-data-item">
+            <div class="portal-data-item__label">价格</div>
+            <div class="portal-data-item__value">输入 {{ item.pricing?.inputPer1K ?? item.inputTokenPrice }} / 1K，输出 {{ item.pricing?.outputPer1K ?? item.outputTokenPrice }} / 1K</div>
+          </div>
+          <div class="portal-data-item">
+            <div class="portal-data-item__label">标签</div>
+            <div class="portal-data-item__value">{{ item.tags?.join(' / ') || '-' }}</div>
+          </div>
+          <div class="portal-data-item">
+            <div class="portal-data-item__label">更新时间</div>
+            <div class="portal-data-item__value">{{ formatDateDisplay(item.updatedAt) }}</div>
+          </div>
         </div>
 
-        <div class="portal-list-card__meta">
-          <span>标签：{{ item.tags?.join(' / ') || '-' }}</span>
-          <span>更新：{{ formatDateDisplay(item.updatedAt) }}</span>
-        </div>
-
-        <div class="portal-list-card__actions">
+        <div class="portal-model-card__actions">
           <a-button @click="showDetail(item.id)">
             <LinkOutlined />
             查看详情
           </a-button>
-          <a-button type="text" @click="copyText(buildRequestURL(item))">
+          <a-button @click="copyText(buildRequestURL(item))">
             <CopyOutlined />
             复制地址
           </a-button>
@@ -154,37 +132,68 @@ watch(() => activeConsumerName.value, () => {
       </article>
     </div>
 
-    <a-drawer v-model:open="detailVisible" :width="640" title="模型详情" destroy-on-close>
+    <a-drawer v-model:open="detailVisible" :width="720" title="模型详情" destroy-on-close>
       <template v-if="selectedModel">
-        <div class="portal-detail-stack">
-          <div class="portal-hero-card">
-            <div class="portal-kv__label">模型名称</div>
-            <div class="portal-kv__value">{{ selectedModel.name }}</div>
-            <p class="portal-page__description">{{ selectedModel.summary }}</p>
-          </div>
+        <div class="portal-stack">
+          <section class="portal-section">
+            <div class="portal-section__header">
+              <div>
+                <div class="portal-section__eyebrow">Model</div>
+                <h2 class="portal-section__title">{{ selectedModel.name }}</h2>
+              </div>
+            </div>
 
-          <div class="portal-hero-card">
-            <div class="portal-kv__label">能力说明</div>
-            <div class="portal-kv__value">{{ buildCapabilityText(selectedModel) }}</div>
-          </div>
+            <div v-if="selectedModel.summary" class="portal-callout">
+              {{ selectedModel.summary }}
+            </div>
 
-          <div class="portal-hero-card">
-            <div class="portal-kv__label">调用地址</div>
+            <div class="portal-data-grid">
+              <div class="portal-data-item">
+                <div class="portal-data-item__label">供应商</div>
+                <div class="portal-data-item__value">{{ selectedModel.vendor }}</div>
+              </div>
+              <div class="portal-data-item">
+                <div class="portal-data-item__label">SDK / 协议</div>
+                <div class="portal-data-item__value">{{ selectedModel.sdk || 'openai/v1' }}</div>
+              </div>
+              <div class="portal-data-item">
+                <div class="portal-data-item__label">能力</div>
+                <div class="portal-data-item__value">{{ buildCapabilityText(selectedModel) }}</div>
+              </div>
+              <div class="portal-data-item">
+                <div class="portal-data-item__label">更新时间</div>
+                <div class="portal-data-item__value">{{ formatDateDisplay(selectedModel.updatedAt) }}</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="portal-section">
+            <div class="portal-section__header">
+              <div>
+                <div class="portal-section__eyebrow">Request URL</div>
+                <h2 class="portal-section__title">调用地址</h2>
+              </div>
+            </div>
             <div class="portal-copy-row">
               <code class="portal-inline-code">{{ buildRequestURL(selectedModel) }}</code>
-              <a-button type="text" @click="copyText(buildRequestURL(selectedModel))">
+              <a-button @click="copyText(buildRequestURL(selectedModel))">
                 <CopyOutlined />
               </a-button>
             </div>
-          </div>
+          </section>
 
-          <div class="portal-hero-card">
-            <div class="portal-kv__label">调用示例</div>
+          <section class="portal-section">
+            <div class="portal-section__header">
+              <div>
+                <div class="portal-section__eyebrow">cURL</div>
+                <h2 class="portal-section__title">接入示例</h2>
+              </div>
+            </div>
             <pre class="portal-code-block">curl -X POST {{ buildRequestURL(selectedModel) }} \
   -H "x-api-key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"model":"{{ selectedModel.id }}","messages":[{"role":"user","content":"Hello"}]}'</pre>
-          </div>
+          </section>
         </div>
       </template>
     </a-drawer>
@@ -192,92 +201,18 @@ watch(() => activeConsumerName.value, () => {
 </template>
 
 <style scoped>
-.portal-page__summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+.portal-model-card__summary {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 84px;
 }
 
-.portal-card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
-}
-
-.portal-list-card {
-  border: 1px solid var(--portal-border-strong);
-  border-radius: 4px;
-  background: rgba(48, 44, 44, 0.44);
-  padding: 18px;
-}
-
-.portal-list-card__header,
-.portal-list-card__meta,
-.portal-list-card__actions,
-.portal-copy-row {
+.portal-model-card__actions {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.portal-list-card__title {
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.portal-list-card__subtitle,
-.portal-list-card__meta,
-.portal-empty__text {
-  color: var(--portal-text-secondary);
-  font-size: 13px;
-}
-
-.portal-list-card__badge {
-  border: 1px solid var(--portal-border);
-  border-radius: 999px;
-  padding: 5px 10px;
-  color: var(--portal-text-secondary);
-  font-size: 12px;
-}
-
-.portal-list-card__intro {
-  color: var(--portal-text-primary);
-  line-height: 1.7;
-  margin: 18px 0 14px;
-}
-
-.portal-empty {
-  text-align: center;
-  padding: 48px 24px;
-}
-
-.portal-empty__title {
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.portal-detail-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.portal-inline-code {
-  flex: 1;
-  min-width: 0;
-  overflow: auto;
-}
-
-.portal-code-block {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-@media (max-width: 960px) {
-  .portal-page__summary {
-    grid-template-columns: 1fr;
-  }
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
 }
 </style>

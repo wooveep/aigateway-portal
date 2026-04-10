@@ -259,6 +259,7 @@ export function useAIChat(scopeConsumerName: { value: string }) {
     if (!trimmedContent || sending.value) {
       return;
     }
+    errorMessage.value = '';
     const sessionId = await ensureActiveSession();
     if (!sessionDetails[sessionId]) {
       await loadSessionDetail(sessionId);
@@ -334,6 +335,7 @@ export function useAIChat(scopeConsumerName: { value: string }) {
           status: 'failed',
           errorMessage: message,
         });
+        errorMessage.value = message;
         throw new Error(message);
       }
 
@@ -389,6 +391,7 @@ export function useAIChat(scopeConsumerName: { value: string }) {
               errorMessage: payload.message || '发送失败',
               finishedAt: new Date().toISOString(),
             });
+            errorMessage.value = payload.message || '发送失败';
             throw new Error(payload.message || '发送失败');
           }
         }
@@ -399,12 +402,14 @@ export function useAIChat(scopeConsumerName: { value: string }) {
           status: 'cancelled',
           errorMessage: '会话已取消',
         });
+        errorMessage.value = '';
       } else {
         const detailMessage = error?.message || '发送失败';
         patchMessage(sessionId, tempAssistantId, {
           status: 'failed',
           errorMessage: detailMessage,
         });
+        errorMessage.value = detailMessage;
         throw error;
       }
     } finally {

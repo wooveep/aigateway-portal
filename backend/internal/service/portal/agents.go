@@ -50,8 +50,11 @@ func (s *Service) ListAgents(ctx context.Context, user model.AuthUser) ([]model.
 	if err != nil {
 		return nil, apperr.New(503, "agent catalog unavailable", err.Error())
 	}
+	resolver := s.newGatewayAddressResolver(ctx)
 	result := make([]model.AgentInfo, 0, len(visible))
 	for _, item := range visible {
+		item.Info.HTTPURL = resolver.resolveURL(buildPortalMcpHTTPPath(item.Info.McpServerName), buildPortalMcpHTTPPath(item.Info.McpServerName), false)
+		item.Info.SSEURL = resolver.resolveURL(buildPortalMcpSSEPath(item.Info.McpServerName), buildPortalMcpSSEPath(item.Info.McpServerName), false)
 		result = append(result, item.Info)
 	}
 	return result, nil
@@ -99,7 +102,11 @@ func (s *Service) GetAgentDetail(ctx context.Context, agentID string, user model
 	if len(visible) == 0 {
 		return model.AgentInfo{}, apperr.New(404, "agent not found")
 	}
-	return visible[0].Info, nil
+	resolver := s.newGatewayAddressResolver(ctx)
+	info := visible[0].Info
+	info.HTTPURL = resolver.resolveURL(buildPortalMcpHTTPPath(info.McpServerName), buildPortalMcpHTTPPath(info.McpServerName), false)
+	info.SSEURL = resolver.resolveURL(buildPortalMcpSSEPath(info.McpServerName), buildPortalMcpSSEPath(info.McpServerName), false)
+	return info, nil
 }
 
 func (s *Service) toPortalAgentInfo(record gdb.Record) model.AgentInfo {
@@ -119,8 +126,8 @@ func (s *Service) toPortalAgentInfo(record gdb.Record) model.AgentInfo {
 		TransportTypes:  parseJSONList(record["transport_types_json"].String()),
 		ResourceSummary: strings.TrimSpace(record["resource_summary"].String()),
 		PromptSummary:   strings.TrimSpace(record["prompt_summary"].String()),
-		HTTPURL:         s.buildGatewayURL(httpPath, httpPath, false),
-		SSEURL:          s.buildGatewayURL(ssePath, ssePath, false),
+		HTTPURL:         httpPath,
+		SSEURL:          ssePath,
 		PublishedAt:     model.NowText(record["published_at"].Time()),
 		UpdatedAt:       model.NowText(record["updated_at"].Time()),
 	}

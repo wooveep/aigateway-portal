@@ -13,13 +13,8 @@ const detailVisible = ref(false);
 const loading = ref(false);
 
 const {
-  hasManagedAccounts,
-  loadingManagedAccounts,
   loadManagedAccounts,
-  scopeOptions,
   activeConsumerName,
-  currentScopeTitle,
-  updateScopeConsumerName,
 } = useManagedAccountScope();
 
 const emptyState = computed(() => !loading.value && agents.value.length === 0);
@@ -65,74 +60,58 @@ watch(() => activeConsumerName.value, () => {
 
 <template>
   <section class="portal-page">
-    <div class="portal-page__header">
-      <div>
-        <div class="portal-page__eyebrow">Agents</div>
-        <h1 class="portal-page__title">智能体广场</h1>
-        <p class="portal-page__description">首版只提供 MCP-backed agent 的展示、说明和接入复制能力，不在 Portal 内编辑资源或提示词。</p>
-      </div>
-
-      <div class="portal-page__scope">
-        <span>当前范围</span>
-        <a-select
-          v-if="hasManagedAccounts"
-          :value="activeConsumerName"
-          :options="scopeOptions"
-          :loading="loadingManagedAccounts"
-          style="min-width: 260px"
-          @update:value="updateScopeConsumerName(($event as string) || ''); loadAgents()"
-        />
-        <span v-else class="portal-page__scope-text">{{ currentScopeTitle }}</span>
+    <div class="portal-metric-strip">
+      <div class="portal-metric">
+        <div class="portal-metric__label">可见智能体</div>
+        <div class="portal-metric__value">{{ agents.length }}</div>
       </div>
     </div>
 
-    <div class="portal-hero-card portal-page__summary">
-      <div>
-        <div class="portal-kv__label">可见智能体</div>
-        <div class="portal-kv__value">{{ agents.length }}</div>
-      </div>
-      <div>
-        <div class="portal-kv__label">当前作用域</div>
-        <div class="portal-kv__value">{{ currentScopeTitle }}</div>
-      </div>
-    </div>
-
-    <div v-if="loading" class="portal-hero-card">
+    <section v-if="loading" class="portal-section">
       <a-skeleton active :paragraph="{ rows: 6 }" />
-    </div>
+    </section>
 
-    <div v-else-if="emptyState" class="portal-hero-card portal-empty">
+    <section v-else-if="emptyState" class="portal-section portal-empty">
       <div class="portal-empty__title">当前范围下还没有可见智能体</div>
-      <div class="portal-empty__text">可以去 Console 发布 agent_catalog，或者检查当前账号是否满足 consumer / department / user_level 授权。</div>
-    </div>
+    </section>
 
-    <div v-else class="portal-card-grid">
-      <article v-for="item in agents" :key="item.id" class="portal-list-card">
-        <div class="portal-list-card__header">
+    <div v-else class="portal-grid portal-grid--cards">
+      <article v-for="item in agents" :key="item.id" class="portal-record portal-agent-card">
+        <div class="portal-record__header">
           <div>
-            <div class="portal-list-card__title">{{ item.displayName }}</div>
-            <div class="portal-list-card__subtitle">{{ item.canonicalName }}</div>
+            <div class="portal-record__title">{{ item.displayName }}</div>
+            <div class="portal-record__subtitle">{{ item.canonicalName }}</div>
           </div>
-          <div class="portal-list-card__badge">{{ item.toolCount }} tools</div>
+          <span class="portal-pill">{{ item.toolCount }} tools</span>
         </div>
 
-        <p class="portal-list-card__intro">{{ item.intro || item.description }}</p>
+        <div class="portal-record__summary portal-agent-card__summary">{{ item.intro || item.description }}</div>
 
-        <div class="portal-list-card__meta">
-          <span>传输：{{ item.transportTypes?.join(' / ') || 'http / sse' }}</span>
-          <span>更新：{{ formatDateDisplay(item.updatedAt) }}</span>
+        <div class="portal-data-grid">
+          <div class="portal-data-item">
+            <div class="portal-data-item__label">传输</div>
+            <div class="portal-data-item__value">{{ item.transportTypes?.join(' / ') || 'http / sse' }}</div>
+          </div>
+          <div class="portal-data-item">
+            <div class="portal-data-item__label">MCP Server</div>
+            <div class="portal-data-item__value">{{ item.mcpServerName }}</div>
+          </div>
+          <div class="portal-data-item">
+            <div class="portal-data-item__label">标签</div>
+            <div class="portal-data-item__value">{{ item.tags?.join(' / ') || '-' }}</div>
+          </div>
+          <div class="portal-data-item">
+            <div class="portal-data-item__label">更新时间</div>
+            <div class="portal-data-item__value">{{ formatDateDisplay(item.updatedAt) }}</div>
+          </div>
         </div>
 
-        <div v-if="item.tags?.length" class="portal-list-card__tags">
-          <span v-for="tag in item.tags" :key="tag" class="portal-tag">{{ tag }}</span>
-        </div>
-
-        <div class="portal-list-card__actions">
-          <a-button type="default" @click="showDetail(item.id)">
+        <div class="portal-agent-card__actions">
+          <a-button @click="showDetail(item.id)">
             <LinkOutlined />
             查看详情
           </a-button>
-          <a-button type="text" @click="copyText(item.httpUrl)">
+          <a-button @click="copyText(item.httpUrl)">
             <CopyOutlined />
             复制 HTTP
           </a-button>
@@ -140,43 +119,81 @@ watch(() => activeConsumerName.value, () => {
       </article>
     </div>
 
-    <a-drawer v-model:open="detailVisible" :width="640" title="智能体详情" destroy-on-close>
+    <a-drawer v-model:open="detailVisible" :width="760" title="智能体详情" destroy-on-close>
       <template v-if="selectedAgent">
-        <div class="portal-detail-stack">
-          <div class="portal-hero-card">
-            <div class="portal-kv__label">名称</div>
-            <div class="portal-kv__value">{{ selectedAgent.displayName }}</div>
-            <p class="portal-page__description">{{ selectedAgent.description || selectedAgent.intro }}</p>
-          </div>
+        <div class="portal-stack">
+          <section class="portal-section">
+            <div class="portal-section__header">
+              <div>
+                <div class="portal-section__eyebrow">Agent</div>
+                <h2 class="portal-section__title">{{ selectedAgent.displayName }}</h2>
+              </div>
+            </div>
 
-          <div class="portal-hero-card">
-            <div class="portal-kv__label">MCP Server</div>
-            <div class="portal-kv__value">{{ selectedAgent.mcpServerName }}</div>
+            <div v-if="selectedAgent.description || selectedAgent.intro" class="portal-callout">
+              {{ selectedAgent.description || selectedAgent.intro }}
+            </div>
+
+            <div class="portal-data-grid">
+              <div class="portal-data-item">
+                <div class="portal-data-item__label">Canonical Name</div>
+                <div class="portal-data-item__value">{{ selectedAgent.canonicalName }}</div>
+              </div>
+              <div class="portal-data-item">
+                <div class="portal-data-item__label">MCP Server</div>
+                <div class="portal-data-item__value">{{ selectedAgent.mcpServerName }}</div>
+              </div>
+              <div class="portal-data-item">
+                <div class="portal-data-item__label">Transport</div>
+                <div class="portal-data-item__value">{{ selectedAgent.transportTypes?.join(' / ') || 'http / sse' }}</div>
+              </div>
+              <div class="portal-data-item">
+                <div class="portal-data-item__label">Published</div>
+                <div class="portal-data-item__value">{{ formatDateDisplay(selectedAgent.publishedAt) }}</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="portal-section">
+            <div class="portal-section__header">
+              <div>
+                <div class="portal-section__eyebrow">Endpoints</div>
+                <h2 class="portal-section__title">接入地址</h2>
+              </div>
+            </div>
             <div class="portal-copy-row">
-              <span class="portal-copy-row__label">HTTP</span>
               <code class="portal-inline-code">{{ selectedAgent.httpUrl }}</code>
-              <a-button type="text" @click="copyText(selectedAgent.httpUrl)">
+              <a-button @click="copyText(selectedAgent.httpUrl)">
                 <CopyOutlined />
               </a-button>
             </div>
             <div class="portal-copy-row">
-              <span class="portal-copy-row__label">SSE</span>
               <code class="portal-inline-code">{{ selectedAgent.sseUrl }}</code>
-              <a-button type="text" @click="copyText(selectedAgent.sseUrl)">
+              <a-button @click="copyText(selectedAgent.sseUrl)">
                 <CopyOutlined />
               </a-button>
             </div>
-          </div>
+          </section>
 
-          <div class="portal-hero-card">
-            <div class="portal-kv__label">Resource 摘要</div>
+          <section class="portal-section">
+            <div class="portal-section__header">
+              <div>
+                <div class="portal-section__eyebrow">Resource</div>
+                <h2 class="portal-section__title">只读摘要</h2>
+              </div>
+            </div>
             <pre class="portal-code-block">{{ selectedAgent.resourceSummary || '当前未声明 resource。' }}</pre>
-          </div>
+          </section>
 
-          <div class="portal-hero-card">
-            <div class="portal-kv__label">Prompt 摘要</div>
+          <section class="portal-section">
+            <div class="portal-section__header">
+              <div>
+                <div class="portal-section__eyebrow">Prompt</div>
+                <h2 class="portal-section__title">接入说明</h2>
+              </div>
+            </div>
             <pre class="portal-code-block">{{ selectedAgent.promptSummary || '当前未声明 prompt。' }}</pre>
-          </div>
+          </section>
         </div>
       </template>
     </a-drawer>
@@ -184,101 +201,18 @@ watch(() => activeConsumerName.value, () => {
 </template>
 
 <style scoped>
-.portal-page__summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+.portal-agent-card__summary {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 84px;
 }
 
-.portal-card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
-}
-
-.portal-list-card {
-  border: 1px solid var(--portal-border-strong);
-  border-radius: 4px;
-  background: rgba(48, 44, 44, 0.44);
-  padding: 18px;
-}
-
-.portal-list-card__header,
-.portal-list-card__meta,
-.portal-list-card__actions,
-.portal-copy-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.portal-list-card__title {
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.portal-list-card__subtitle,
-.portal-list-card__meta,
-.portal-empty__text,
-.portal-copy-row__label {
-  color: var(--portal-text-secondary);
-  font-size: 13px;
-}
-
-.portal-list-card__badge,
-.portal-tag {
-  border: 1px solid var(--portal-border);
-  border-radius: 999px;
-  padding: 5px 10px;
-  color: var(--portal-text-secondary);
-  font-size: 12px;
-}
-
-.portal-list-card__intro {
-  color: var(--portal-text-primary);
-  line-height: 1.7;
-  margin: 18px 0 14px;
-}
-
-.portal-list-card__tags {
+.portal-agent-card__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.portal-empty {
-  text-align: center;
-  padding: 48px 24px;
-}
-
-.portal-empty__title {
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.portal-detail-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.portal-inline-code {
-  flex: 1;
-  min-width: 0;
-  overflow: auto;
-}
-
-.portal-code-block {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-@media (max-width: 960px) {
-  .portal-page__summary {
-    grid-template-columns: 1fr;
-  }
+  gap: 10px;
+  margin-top: 18px;
 }
 </style>

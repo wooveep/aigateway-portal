@@ -92,12 +92,23 @@ type ProviderModel struct {
 	Type     string
 	Protocol string
 	Endpoint string
+	InternalEndpoint string
+	InternalRouteURL string
+	RouteModel       string
 	Meta     ProviderModelMeta
 }
 
+type GatewayIngressRoute struct {
+	Host   string
+	Path   string
+	HasTLS bool
+}
+
 type providerRouteBinding struct {
-	Path       string
-	ExactModel string
+	RouteName      string
+	Path           string
+	InternalPath   string
+	ExactModel     string
 }
 
 type Client struct {
@@ -155,15 +166,22 @@ func (c *Client) ListEnabledModels(ctx context.Context) ([]ProviderModel, error)
 
 	items := make([]ProviderModel, 0, len(providers))
 	for _, item := range providers {
+		baseEndpoint := item.Endpoint
 		registryName := buildRegistryName(item.ID)
 		if _, ok := registryNames[registryName]; !ok {
 			continue
 		}
 		if binding, ok := routeBindings[registryName]; ok {
 			if binding.Path != "" {
-				item.Endpoint = buildGatewayEndpoint(binding.Path, item.Protocol, item.Endpoint)
+				item.Endpoint = buildGatewayEndpoint(binding.Path, item.Protocol, baseEndpoint)
+			}
+			if binding.InternalPath != "" {
+				item.InternalEndpoint = buildInternalGatewayEndpoint(binding.InternalPath, binding.Path, item.Protocol,
+					baseEndpoint)
+				item.InternalRouteURL = binding.InternalPath
 			}
 			if binding.ExactModel != "" {
+				item.RouteModel = binding.ExactModel
 				item.ID = binding.ExactModel
 			}
 		}
@@ -174,6 +192,85 @@ func (c *Client) ListEnabledModels(ctx context.Context) ([]ProviderModel, error)
 		return items[i].ID < items[j].ID
 	})
 	return items, nil
+}
+
+func (c *Client) ListGatewayIngressRoutes(ctx context.Context) ([]GatewayIngressRoute, error) {
+	if c.dynamicClient == nil {
+		if c.initErr != nil {
+			return nil, gerror.Wrap(c.initErr, "kubernetes gateway ingress unavailable")
+		}
+		return nil, gerror.New("kubernetes gateway ingress unavailable")
+	}
+
+	list, err := c.dynamicClient.Resource(ingressGVR).Namespace(c.namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, gerror.Wrap(err, "list gateway ingresses failed")
+	}
+	if list == nil || len(list.Items) == 0 {
+		return []GatewayIngressRoute{}, nil
+	}
+
+	routes := make([]GatewayIngressRoute, 0)
+	seen := make(map[string]struct{})
+	for _, item := range list.Items {
+		tlsHosts, wildcardTLS := ingressTLSHosts(item.Object)
+		rules, found, nestedErr := unstructured.NestedSlice(item.Object, "spec", "rules")
+		if nestedErr != nil || !found {
+			continue
+		}
+		for _, ruleItem := range rules {
+			ruleMap, ok := ruleItem.(map[string]any)
+			if !ok {
+				continue
+			}
+			host := strings.TrimSpace(asString(ruleMap["host"]))
+			httpMap, ok := ruleMap["http"].(map[string]any)
+			if !ok {
+				continue
+			}
+			paths, ok := httpMap["paths"].([]any)
+			if !ok {
+				continue
+			}
+			for _, pathItem := range paths {
+				pathMap, ok := pathItem.(map[string]any)
+				if !ok {
+					continue
+				}
+				path := normalizePath(asString(pathMap["path"]))
+				if path == "" {
+					continue
+				}
+				hasTLS := wildcardTLS
+				if host != "" {
+					if _, ok := tlsHosts[host]; ok {
+						hasTLS = true
+					}
+				}
+				key := host + "|" + path + "|" + strconv.FormatBool(hasTLS)
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+				routes = append(routes, GatewayIngressRoute{
+					Host:   host,
+					Path:   path,
+					HasTLS: hasTLS,
+				})
+			}
+		}
+	}
+
+	sort.Slice(routes, func(i, j int) bool {
+		if routes[i].Host == routes[j].Host {
+			if len(routes[i].Path) == len(routes[j].Path) {
+				return routes[i].Path < routes[j].Path
+			}
+			return len(routes[i].Path) > len(routes[j].Path)
+		}
+		return routes[i].Host < routes[j].Host
+	})
+	return routes, nil
 }
 
 func (c *Client) listProviderConfigs(ctx context.Context) ([]ProviderModel, error) {
@@ -283,16 +380,26 @@ func (c *Client) listProviderRouteBindings(ctx context.Context) (map[string]prov
 		if registryName == "" {
 			continue
 		}
+		ingressName, _, _ := unstructured.NestedString(item.Object, "metadata", "name")
 		routePath := firstIngressPath(item.Object)
 		exactModel := extractExactModelHeader(item.Object)
 		if routePath == "" && exactModel == "" {
 			continue
 		}
 		binding := result[registryName]
-		if routePath != "" {
+		if strings.TrimSpace(binding.RouteName) == "" {
+			binding.RouteName = strings.TrimSpace(ingressName)
+		}
+		if isInternalAIRoutePath(routePath) {
+			binding.InternalPath = routePath
+		} else if routePath != "" {
 			binding.Path = routePath
 		}
-		if exactModel != "" {
+		if routePath != "" {
+			if exactModel != "" {
+				binding.ExactModel = exactModel
+			}
+		} else if exactModel != "" {
 			binding.ExactModel = exactModel
 		}
 		result[registryName] = binding
@@ -423,6 +530,32 @@ func extractExactModelHeader(object map[string]any) string {
 	return strings.TrimSpace(exactModel)
 }
 
+func ingressTLSHosts(object map[string]any) (map[string]struct{}, bool) {
+	result := make(map[string]struct{})
+	tlsItems, found, err := unstructured.NestedSlice(object, "spec", "tls")
+	if err != nil || !found || len(tlsItems) == 0 {
+		return result, false
+	}
+	wildcardTLS := false
+	for _, item := range tlsItems {
+		tlsMap, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		hosts := asStringSlice(tlsMap["hosts"])
+		if len(hosts) == 0 {
+			wildcardTLS = true
+			continue
+		}
+		for _, host := range hosts {
+			if host != "" {
+				result[host] = struct{}{}
+			}
+		}
+	}
+	return result, wildcardTLS
+}
+
 func buildGatewayEndpoint(routePath string, protocol string, fallbackEndpoint string) string {
 	routePath = normalizePath(routePath)
 	suffix := normalizeEndpointSuffix(fallbackEndpoint, protocol)
@@ -439,6 +572,26 @@ func buildGatewayEndpoint(routePath string, protocol string, fallbackEndpoint st
 		return routePath
 	}
 	return strings.TrimRight(routePath, "/") + "/" + strings.TrimLeft(suffix, "/")
+}
+
+func buildInternalGatewayEndpoint(internalPath string, publicPath string, protocol string, fallbackEndpoint string) string {
+	internalPath = normalizePath(internalPath)
+	publicPath = normalizePath(publicPath)
+	suffix := normalizeEndpointSuffix(fallbackEndpoint, protocol)
+	if publicPath != "" && publicPath != "/" {
+		if suffix == publicPath {
+			suffix = ""
+		} else if strings.HasPrefix(suffix, publicPath+"/") {
+			suffix = strings.TrimPrefix(suffix, publicPath)
+		}
+	}
+	if internalPath == "" {
+		return suffix
+	}
+	if suffix == "" || suffix == "/" {
+		return internalPath
+	}
+	return strings.TrimRight(internalPath, "/") + "/" + strings.TrimLeft(suffix, "/")
 }
 
 func normalizeEndpointSuffix(endpoint string, protocol string) string {
@@ -471,6 +624,11 @@ func normalizePath(path string) string {
 		path = strings.TrimRight(path, "/")
 	}
 	return path
+}
+
+func isInternalAIRoutePath(path string) bool {
+	path = normalizePath(path)
+	return strings.HasPrefix(path, "/internal/ai-routes/")
 }
 
 func parsePortalModelMeta(provider map[string]any) ProviderModelMeta {

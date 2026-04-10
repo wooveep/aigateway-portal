@@ -40,6 +40,8 @@ type Config struct {
 	PortalDisplayName            string
 	GatewayPublicBaseURL         string
 	GatewayInternalBaseURL       string
+	GatewayPublicHostFallback    string
+	GatewayServiceName           string
 	WebRoot                      string
 }
 
@@ -75,6 +77,8 @@ func Load() Config {
 		PortalDisplayName:            getEnv("PORTAL_DISPLAY_NAME", "AIGateway 用户门户"),
 		GatewayPublicBaseURL:         strings.TrimRight(getEnv("PORTAL_GATEWAY_PUBLIC_BASE_URL", ""), "/"),
 		GatewayInternalBaseURL:       strings.TrimRight(getEnv("PORTAL_GATEWAY_INTERNAL_BASE_URL", ""), "/"),
+		GatewayPublicHostFallback:    strings.TrimSpace(getEnv("PORTAL_GATEWAY_PUBLIC_HOST_FALLBACK", "")),
+		GatewayServiceName:           strings.TrimSpace(getEnv("PORTAL_GATEWAY_SERVICE_NAME", "aigateway-gateway")),
 		WebRoot:                      getEnv("PORTAL_WEB_ROOT", "/app/web"),
 	}
 	if cfg.MySQLDSN == "" && !hasPortalMySQLConnEnv() {
@@ -87,6 +91,9 @@ func Load() Config {
 	}
 	if strings.TrimSpace(cfg.K8sNamespace) == "" {
 		cfg.K8sNamespace = "aigateway-system"
+	}
+	if cfg.GatewayServiceName == "" {
+		cfg.GatewayServiceName = "aigateway-gateway"
 	}
 	if cfg.GatewayInternalBaseURL == "" {
 		cfg.GatewayInternalBaseURL = cfg.GatewayPublicBaseURL
