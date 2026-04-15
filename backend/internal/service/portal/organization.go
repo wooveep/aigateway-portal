@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/gogf/gf/v2/errors/gerror"
+
+	"higress-portal-backend/schema/shared"
 )
 
 const orgRootDepartmentID = "root"
@@ -20,59 +22,8 @@ type userOrgContext struct {
 }
 
 func (s *Service) ensureOrganizationSchema(ctx context.Context) error {
-	migrations := []string{
-		`CREATE TABLE IF NOT EXISTS org_department (
-			id BIGINT AUTO_INCREMENT PRIMARY KEY,
-			department_id VARCHAR(64) NOT NULL UNIQUE,
-			name VARCHAR(128) NOT NULL,
-			parent_department_id VARCHAR(64) NULL,
-			admin_consumer_name VARCHAR(128) NULL,
-			path VARCHAR(512) NOT NULL,
-			level INT NOT NULL DEFAULT 0,
-			sort_order INT NOT NULL DEFAULT 0,
-			status VARCHAR(16) NOT NULL DEFAULT 'active',
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			INDEX idx_org_department_parent (parent_department_id),
-			INDEX idx_org_department_status (status),
-			UNIQUE KEY uk_org_department_admin_consumer (admin_consumer_name)
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-		`CREATE TABLE IF NOT EXISTS org_account_membership (
-			id BIGINT AUTO_INCREMENT PRIMARY KEY,
-			consumer_name VARCHAR(128) NOT NULL UNIQUE,
-			department_id VARCHAR(64) NULL,
-			parent_consumer_name VARCHAR(128) NULL,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			INDEX idx_org_account_department (department_id),
-			INDEX idx_org_account_parent (parent_consumer_name)
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-		`CREATE TABLE IF NOT EXISTS asset_grant (
-			id BIGINT AUTO_INCREMENT PRIMARY KEY,
-			asset_type VARCHAR(32) NOT NULL,
-			asset_id VARCHAR(128) NOT NULL,
-			subject_type VARCHAR(32) NOT NULL,
-			subject_id VARCHAR(128) NOT NULL,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			UNIQUE KEY uk_asset_grant_subject (asset_type, asset_id, subject_type, subject_id),
-			INDEX idx_asset_grant_asset (asset_type, asset_id),
-			INDEX idx_asset_grant_subject_lookup (subject_type, subject_id)
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-	}
-
-	for _, ddl := range migrations {
-		if _, err := s.db.Exec(ctx, ddl); err != nil {
-			return gerror.Wrap(err, "organization migration failed")
-		}
-	}
-	for _, ddl := range []string{
-		`ALTER TABLE org_department ADD COLUMN admin_consumer_name VARCHAR(128) NULL AFTER parent_department_id`,
-		`ALTER TABLE org_department ADD UNIQUE KEY uk_org_department_admin_consumer (admin_consumer_name)`,
-	} {
-		if _, err := s.db.Exec(ctx, ddl); err != nil {
-			s.logf(ctx, "skip organization schema adjustment: %v", err)
-		}
+	if err := shared.ApplyToGDB(ctx, s.db); err != nil {
+		return gerror.Wrap(err, "organization migration failed")
 	}
 	if err := s.ensureRootDepartment(ctx); err != nil {
 		return err

@@ -72,6 +72,16 @@
 
 ## 本地开发
 
+推荐先在仓库根目录启动核心依赖，再本地运行 Portal：
+
+```bash
+cd /path/to/aigateway-group
+python3 ./scripts/aigateway-dev.py minikube-dev --core-only
+```
+
+这样会在集群里保留 `mysql / redis / controller / gateway / plugin-server / prometheus` 等核心服务，
+但不会启动集群版 `console` / `portal`，便于你直接修改本地源码做验证。
+
 一键启动（推荐）：
 ```bash
 ./start.sh

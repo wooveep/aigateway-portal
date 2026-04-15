@@ -20,6 +20,7 @@ import (
 	"higress-portal-backend/internal/config"
 	"higress-portal-backend/internal/consts"
 	"higress-portal-backend/internal/model"
+	"higress-portal-backend/schema/shared"
 )
 
 type Service struct {
@@ -55,7 +56,7 @@ func New(cfg config.Config) (*Service, error) {
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,
 		},
-		streamClient: &http.Client{},
+		streamClient:    &http.Client{},
 		modelK8s:        clientK8s.New(cfg),
 		billingNodeName: "portal-" + randomString(8),
 	}
@@ -86,32 +87,11 @@ func (s *Service) Close(ctx context.Context) error {
 }
 
 func (s *Service) runMigrations(ctx context.Context) error {
+	if err := shared.ApplyToGDB(ctx, s.db); err != nil {
+		return err
+	}
+
 	migrations := []string{
-		`CREATE TABLE IF NOT EXISTS portal_user (
-			id BIGINT AUTO_INCREMENT PRIMARY KEY,
-			consumer_name VARCHAR(128) NOT NULL UNIQUE,
-			display_name VARCHAR(128) NOT NULL,
-			email VARCHAR(255) NOT NULL DEFAULT '',
-			password_hash VARCHAR(255) NOT NULL,
-			status VARCHAR(16) NOT NULL DEFAULT 'active',
-			source VARCHAR(16) NOT NULL DEFAULT 'portal',
-			user_level VARCHAR(16) NOT NULL DEFAULT 'normal',
-			is_deleted TINYINT(1) NOT NULL DEFAULT 0,
-			deleted_at DATETIME NULL,
-			last_login_at DATETIME NULL,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-		`CREATE TABLE IF NOT EXISTS portal_invite_code (
-			id BIGINT AUTO_INCREMENT PRIMARY KEY,
-			invite_code VARCHAR(64) NOT NULL UNIQUE,
-			status VARCHAR(16) NOT NULL DEFAULT 'active',
-			expires_at DATETIME NOT NULL,
-			used_by_consumer VARCHAR(128) NULL,
-			used_at DATETIME NULL,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 		`CREATE TABLE IF NOT EXISTS portal_session (
 			session_token VARCHAR(96) PRIMARY KEY,
 			consumer_name VARCHAR(128) NOT NULL,
@@ -318,20 +298,6 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			INDEX idx_billing_usage_event_api_key_time (api_key_id, occurred_at),
 			INDEX idx_billing_usage_event_department_time (department_id, occurred_at)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-		`CREATE TABLE IF NOT EXISTS quota_policy_user (
-			id BIGINT AUTO_INCREMENT PRIMARY KEY,
-			consumer_name VARCHAR(128) NOT NULL UNIQUE,
-			limit_total_micro_yuan BIGINT NOT NULL DEFAULT 0,
-			limit_5h_micro_yuan BIGINT NOT NULL DEFAULT 0,
-			limit_daily_micro_yuan BIGINT NOT NULL DEFAULT 0,
-			daily_reset_mode VARCHAR(16) NOT NULL DEFAULT 'fixed',
-			daily_reset_time VARCHAR(5) NOT NULL DEFAULT '00:00',
-			limit_weekly_micro_yuan BIGINT NOT NULL DEFAULT 0,
-			limit_monthly_micro_yuan BIGINT NOT NULL DEFAULT 0,
-			cost_reset_at DATETIME NULL,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 		`CREATE TABLE IF NOT EXISTS billing_model_catalog (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
 			model_id VARCHAR(128) NOT NULL UNIQUE,
@@ -345,65 +311,6 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			INDEX idx_billing_model_status (status)
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-		`CREATE TABLE IF NOT EXISTS portal_model_asset (
-			id BIGINT AUTO_INCREMENT PRIMARY KEY,
-			asset_id VARCHAR(128) NOT NULL UNIQUE,
-			canonical_name VARCHAR(128) NOT NULL UNIQUE,
-			display_name VARCHAR(128) NOT NULL,
-			intro TEXT NOT NULL,
-			tags_json TEXT NULL,
-			modalities_json TEXT NULL,
-			features_json TEXT NULL,
-			request_kinds_json TEXT NULL,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			INDEX idx_portal_model_asset_display_name (display_name)
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-		`CREATE TABLE IF NOT EXISTS portal_model_binding (
-			id BIGINT AUTO_INCREMENT PRIMARY KEY,
-			binding_id VARCHAR(128) NOT NULL UNIQUE,
-			asset_id VARCHAR(128) NOT NULL,
-			model_id VARCHAR(128) NOT NULL UNIQUE,
-			provider_name VARCHAR(128) NOT NULL,
-			target_model VARCHAR(128) NOT NULL,
-			protocol VARCHAR(128) NOT NULL DEFAULT 'openai/v1',
-			endpoint VARCHAR(255) NOT NULL DEFAULT '-',
-			pricing_json TEXT NOT NULL,
-			rpm BIGINT NULL,
-			tpm BIGINT NULL,
-			context_window BIGINT NULL,
-			status VARCHAR(16) NOT NULL DEFAULT 'draft',
-			published_at DATETIME NULL,
-			unpublished_at DATETIME NULL,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			UNIQUE KEY uk_portal_model_binding_target (asset_id, provider_name, target_model),
-			INDEX idx_portal_model_binding_asset (asset_id),
-			INDEX idx_portal_model_binding_status (status),
-			INDEX idx_portal_model_binding_provider (provider_name)
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-		`CREATE TABLE IF NOT EXISTS portal_agent_catalog (
-			id BIGINT AUTO_INCREMENT PRIMARY KEY,
-			agent_id VARCHAR(128) NOT NULL UNIQUE,
-			canonical_name VARCHAR(128) NOT NULL UNIQUE,
-			display_name VARCHAR(128) NOT NULL,
-			intro TEXT NOT NULL,
-			description TEXT NOT NULL,
-			icon_url VARCHAR(512) NOT NULL DEFAULT '',
-			tags_json TEXT NULL,
-			mcp_server_name VARCHAR(128) NOT NULL UNIQUE,
-			tool_count BIGINT NOT NULL DEFAULT 0,
-			transport_types_json TEXT NULL,
-			resource_summary TEXT NOT NULL,
-			prompt_summary TEXT NOT NULL,
-			status VARCHAR(16) NOT NULL DEFAULT 'draft',
-			published_at DATETIME NULL,
-			unpublished_at DATETIME NULL,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			INDEX idx_portal_agent_catalog_status (status),
-			INDEX idx_portal_agent_catalog_display_name (display_name)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 		`CREATE TABLE IF NOT EXISTS portal_ai_chat_session (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -475,12 +382,6 @@ func (s *Service) runMigrations(ctx context.Context) error {
 			return gerror.Wrap(err, "migration failed")
 		}
 	}
-	if err := s.ensurePortalUserLevelColumn(ctx); err != nil {
-		return err
-	}
-	if err := s.ensurePortalUserDeleteColumns(ctx); err != nil {
-		return err
-	}
 	if err := s.ensurePortalAPIKeyColumns(ctx); err != nil {
 		return err
 	}
@@ -494,9 +395,6 @@ func (s *Service) runMigrations(ctx context.Context) error {
 		return err
 	}
 	if err := s.ensureBillingModelPriceColumns(ctx); err != nil {
-		return err
-	}
-	if err := s.ensurePortalModelAssetColumns(ctx); err != nil {
 		return err
 	}
 	if err := s.ensureOrganizationSchema(ctx); err != nil {
