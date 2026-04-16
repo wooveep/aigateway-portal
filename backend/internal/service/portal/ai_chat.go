@@ -294,6 +294,10 @@ func (s *Service) StreamChatMessage(ctx context.Context, consumerName string, se
 	upstreamReq.Header.Set("Content-Type", "application/json")
 	upstreamReq.Header.Set("Accept", "text/event-stream")
 	upstreamReq.Header.Set("x-api-key", apiKeyRow.RawKey)
+	upstreamReq.Header.Set("x-mse-consumer", consumerName)
+	if keyID := strings.TrimSpace(apiKeyRow.KeyID); keyID != "" {
+		upstreamReq.Header.Set("x-higress-api-key-id", keyID)
+	}
 	if routeModel != "" {
 		upstreamReq.Header.Set("x-higress-llm-model", routeModel)
 	}
@@ -499,7 +503,8 @@ func (s *Service) updateChatSessionDefaults(ctx context.Context, consumerName st
 func (s *Service) refreshChatSessionTitleAndPreview(ctx context.Context, consumerName string, sessionID string,
 	userContent string, assistantContent string,
 ) error {
-	session, err := s.requireChatSession(ctx, consumerName, sessionID)
+	writeCtx := chatWriteContext(ctx)
+	session, err := s.requireChatSession(writeCtx, consumerName, sessionID)
 	if err != nil {
 		return err
 	}
@@ -512,7 +517,7 @@ func (s *Service) refreshChatSessionTitleAndPreview(ctx context.Context, consume
 		preview = trimPreview(strings.TrimSpace(userContent), 120)
 	}
 	now := time.Now().UTC()
-	_, err = s.db.Exec(ctx, `
+	_, err = s.db.Exec(writeCtx, `
 		UPDATE portal_ai_chat_session
 		SET title = ?, last_message_preview = ?, last_message_at = ?, updated_at = ?
 		WHERE session_id = ? AND consumer_name = ? AND deleted_at IS NULL`,
@@ -528,13 +533,20 @@ func (s *Service) finishAssistantMessage(ctx context.Context, assistantMessageID
 		finalContent = content[0]
 	}
 	now := time.Now().UTC()
-	_, err := s.db.Exec(ctx, `
+	_, err := s.db.Exec(chatWriteContext(ctx), `
 		UPDATE portal_ai_chat_message
 		SET content = ?, status = ?, request_id = ?, trace_id = ?, http_status = ?, error_message = ?,
 			finished_at = ?, updated_at = ?
 		WHERE message_id = ? AND deleted_at IS NULL`,
 		finalContent, status, requestID, traceID, httpStatus, errorMessage, now, now, assistantMessageID)
 	return wrapInternalError("update assistant chat message failed", err)
+}
+
+func chatWriteContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(ctx)
 }
 
 func (s *Service) forwardChatStream(ctx context.Context, body io.Reader, assistantMessageID string,
