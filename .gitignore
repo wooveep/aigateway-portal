@@ -8,3 +8,9 @@ frontend/dist
 
 # misc
 .DS_Store
+.logs/
+logs/
+*.log
+*.log.*
+tmp/
+.tmp/
