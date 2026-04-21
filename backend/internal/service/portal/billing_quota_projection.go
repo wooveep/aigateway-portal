@@ -268,11 +268,12 @@ func (s *Service) syncQuotaUsageWindowsToRedis(ctx context.Context, client *redi
 
 func (s *Service) queryBillingUsageByConsumer(ctx context.Context, start time.Time) (map[string]int64, error) {
 	args := make([]any, 0, 2)
-	startSQL := "TIMESTAMP('1970-01-01 00:00:00')"
+	startSQL := s.epochTimestampLiteral()
 	if !start.IsZero() {
 		startSQL = "?"
 		args = append(args, start)
 	}
+	epochSQL := s.epochTimestampLiteral()
 	records, err := s.db.GetAll(ctx, fmt.Sprintf(`
 		SELECT
 			t.consumer_name AS target_name,
@@ -282,8 +283,8 @@ func (s *Service) queryBillingUsageByConsumer(ctx context.Context, start time.Ti
 			ON p.consumer_name = t.consumer_name
 		WHERE t.tx_type IN ('consume', 'reconcile')
 		  AND t.amount_micro_yuan < 0
-		  AND t.occurred_at >= GREATEST(%s, COALESCE(p.cost_reset_at, TIMESTAMP('1970-01-01 00:00:00')))
-		GROUP BY t.consumer_name`, startSQL), args...)
+		  AND t.occurred_at >= GREATEST(%s, COALESCE(p.cost_reset_at, %s))
+		GROUP BY t.consumer_name`, startSQL, epochSQL), args...)
 	if err != nil {
 		return nil, err
 	}

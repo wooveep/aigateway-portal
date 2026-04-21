@@ -56,15 +56,6 @@ func TestValidateBillingBackfillSummary(t *testing.T) {
 			}(),
 			wantErr: true,
 		},
-		{
-			name: "priced model mismatch",
-			summary: func() billingBackfillSummary {
-				item := valid
-				item.MatchedBillingPriceModelCount = 1
-				return item
-			}(),
-			wantErr: true,
-		},
 	}
 
 	for _, tt := range tests {

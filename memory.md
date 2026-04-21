@@ -1,5 +1,10 @@
 # Memory - Portal Backend 改造记录
 
+## 当前数据库口径更新（2026-04-19）
+
+- 项目数据库标准已固定为 PostgreSQL-only，推荐配置路径为 `PORTAL_DB_*`。
+- 下文若出现 `PORTAL_MYSQL_*`、`jdbc:mysql://` 或 MySQL 相关表述，均属于 2026-03 阶段的历史迁移记录，不再代表当前项目规范。
+
 ## 2026-03-22
 
 ### 本次目标

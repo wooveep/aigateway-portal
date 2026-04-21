@@ -46,33 +46,23 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- include "aigateway-portal.fullname" . -}}
 {{- end -}}
 
-{{- define "aigateway-portal.mysql.host" -}}
+{{- define "aigateway-portal.db.host" -}}
 {{- if .Values.database.host -}}
 {{- .Values.database.host -}}
-{{- else if .Values.mysql.enabled -}}
-{{- if .Values.mysql.service.name -}}
-{{- .Values.mysql.service.name -}}
 {{- else -}}
-{{- printf "%s-aigateway-portal-mysql" .Release.Name -}}
-{{- end -}}
-{{- else -}}
-{{- printf "%s-aigateway-core-mysql" .Release.Name -}}
+{{- printf "%s-aigateway-core-postgresql-pgpool" .Release.Name -}}
 {{- end -}}
 {{- end -}}
 
-{{- define "aigateway-portal.dbSecretName" -}}
-{{- if .Values.mysql.enabled -}}
-{{- if .Values.mysql.auth.existingSecret -}}
-{{- .Values.mysql.auth.existingSecret -}}
-{{- else -}}
-{{- printf "%s-aigateway-portal-db" .Release.Name -}}
+{{- define "aigateway-portal.db.driver" -}}
+{{- .Values.database.driver | default "postgres" -}}
 {{- end -}}
-{{- else -}}
+
+{{- define "aigateway-portal.dbSecretName" -}}
 {{- if .Values.database.existingSecret -}}
 {{- .Values.database.existingSecret -}}
 {{- else -}}
 {{- printf "%s-aigateway-core-db" .Release.Name -}}
-{{- end -}}
 {{- end -}}
 {{- end -}}
 

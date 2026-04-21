@@ -210,6 +210,7 @@ import {
 import PortalRecordScroller, { type PortalRecordScrollerItem } from '../components/shell/PortalRecordScroller.vue';
 import { useManagedAccountScope } from '../composables/useManagedAccountScope';
 import type { ApiKeyRecord, CostDetailRecord, OpenStats, RequestDetailRecord } from '../types';
+import { copyTextToClipboard } from '../utils/clipboard';
 import { dateTimeLocalInputToISOString, formatDateTimeDisplay, toDateTimeLocalInputValue } from '../utils/time';
 import { message } from 'ant-design-vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
@@ -277,7 +278,7 @@ const getErrorMessage = (error: unknown, fallback: string) => {
 
 const copyKey = async (value: string) => {
   try {
-    await navigator.clipboard.writeText(value);
+    await copyTextToClipboard(value);
     message.success('API Key 已复制');
   } catch {
     message.error('复制 API Key 失败');
@@ -340,7 +341,7 @@ const copyAllKeys = async () => {
       message.warning('暂无可复制的 API Key');
       return;
     }
-    await navigator.clipboard.writeText(lines.join('\n'));
+    await copyTextToClipboard(lines.join('\n'));
     message.success('API Key 已复制到剪贴板');
   } catch {
     message.error('复制 API Key 失败');

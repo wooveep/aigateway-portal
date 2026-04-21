@@ -3,6 +3,7 @@ import { CopyOutlined } from '@ant-design/icons-vue';
 import { message } from 'ant-design-vue';
 import { computed } from 'vue';
 import type { ChatMessageRecord } from '../../types';
+import { copyTextToClipboard } from '../../utils/clipboard';
 import { formatDateDisplay } from '../../utils/time';
 
 type MessageSegment =
@@ -41,7 +42,7 @@ const stateText = computed(() => {
 
 const copyBlock = async (value: string) => {
   try {
-    await navigator.clipboard.writeText(value);
+    await copyTextToClipboard(value);
     message.success('代码已复制');
   } catch {
     message.error('复制失败');

@@ -139,9 +139,9 @@ func (s *Service) CreateRecharge(ctx context.Context, consumerName string, req m
 			INSERT INTO billing_wallet
 			(consumer_name, currency, available_micro_yuan, version)
 			VALUES (?, 'CNY', ?, 1)
-			ON DUPLICATE KEY UPDATE
-				available_micro_yuan = available_micro_yuan + VALUES(available_micro_yuan),
-				version = version + 1`,
+			`+s.upsertClause([]string{"consumer_name"},
+			s.upsertAdd("billing_wallet", "available_micro_yuan"),
+			s.upsertAdd("billing_wallet", "version"))+``,
 			normalizedConsumer,
 			amountMicroYuan,
 		); txErr != nil {

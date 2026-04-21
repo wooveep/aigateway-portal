@@ -32,7 +32,7 @@ func TestProjectBillingRuntimeToRedisRestoresRuntimeAfterRedisClear(t *testing.T
 		{ConsumerName: builtinAdministratorUser, AvailableMicroYuan: 999_999},
 	}
 	prices := []billingModelPriceProjection{
-		{ModelID: "qwen-plus", PriceVersion: 9, InputPer1K: 1234, OutputPer1K: 4321},
+		{ModelID: "qwen-plus", PriceVersion: 9, InputPriceMicroYuanPerToken: 1234, OutputPriceMicroYuanPerToken: 4321},
 	}
 	userPolicies := []userQuotaPolicyProjection{
 		{
@@ -104,6 +104,14 @@ func TestProjectBillingRuntimeToRedisRestoresRuntimeAfterRedisClear(t *testing.T
 	require.NoError(t, service.projectBillingRuntimeToRedis(ctx, client, billingDefaultBalanceKey, billingDefaultPriceKey,
 		wallets, prices, userPolicies, keyPolicies, windows))
 	assertProjectedBillingRuntime(t, client, resetAt)
+
+	require.NoError(t, client.HSet(ctx, billingDefaultPriceKey+"stale-model", map[string]any{
+		"model_id": "stale-model",
+	}).Err())
+	require.True(t, redisKeyExists(ctx, client, billingDefaultPriceKey+"stale-model"))
+	require.NoError(t, service.projectBillingRuntimeToRedis(ctx, client, billingDefaultBalanceKey, billingDefaultPriceKey,
+		wallets, prices, userPolicies, keyPolicies, windows))
+	require.False(t, redisKeyExists(ctx, client, billingDefaultPriceKey+"stale-model"))
 }
 
 func assertProjectedBillingRuntime(t *testing.T, client *redis.Client, resetAt string) {
@@ -119,8 +127,10 @@ func assertProjectedBillingRuntime(t *testing.T, client *redis.Client, resetAt s
 	require.NoError(t, err)
 	require.Equal(t, "qwen-plus", price["model_id"])
 	require.Equal(t, "9", price["price_version_id"])
-	require.Equal(t, "1234", price["input_price_per_1k_micro_yuan"])
-	require.Equal(t, "4321", price["output_price_per_1k_micro_yuan"])
+	require.Equal(t, "1234", price["input_price_micro_yuan_per_token"])
+	require.Equal(t, "4321", price["output_price_micro_yuan_per_token"])
+	require.Equal(t, "1234000", price["input_price_per_1k_micro_yuan"])
+	require.Equal(t, "4321000", price["output_price_per_1k_micro_yuan"])
 
 	userPolicy, err := client.HGetAll(ctx, billingDefaultUserPolicyKey+"alice").Result()
 	require.NoError(t, err)
@@ -168,4 +178,10 @@ func assertUsageKey(t *testing.T, client *redis.Client, key string, expected str
 func redisKeyExists(ctx context.Context, client *redis.Client, key string) bool {
 	exists, err := client.Exists(ctx, key).Result()
 	return err == nil && exists > 0
+}
+
+func TestEpochTimestampLiteralMatchesDriver(t *testing.T) {
+	svc := &Service{cfg: config.Config{DBDriver: "postgres"}}
+
+	require.Equal(t, "TIMESTAMP '1970-01-01 00:00:00'", svc.epochTimestampLiteral())
 }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { CopyOutlined } from '@ant-design/icons-vue';
 import { message } from 'ant-design-vue';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 export interface PortalRecordScrollerItem {
   label: string;
@@ -16,7 +17,7 @@ const props = defineProps<{
 
 const copyValue = async (value: string | number) => {
   try {
-    await navigator.clipboard.writeText(String(value ?? ''));
+    await copyTextToClipboard(String(value ?? ''));
     message.success('已复制');
   } catch {
     message.error('复制失败');
