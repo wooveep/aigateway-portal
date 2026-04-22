@@ -1,5 +1,8 @@
 # AIGateway Portal
 
+当前平台正式发布口径为 `1.0.0`。  
+正式发布说明、镜像包说明和部署说明统一以根目录 `docs/release/1.0.0/` 为准。
+
 独立用户门户项目（前后端分离，不并入 `higress-console`）：
 - 后端：Go + GoFrame
 - 前端：Vue 3 + Vite + Ant Design Vue
@@ -111,7 +114,7 @@ npm run dev
 ## 镜像与 Helm
 
 Portal 采用单镜像部署：前端构建产物会打包进后端镜像并随同发布。
-默认镜像名：`aigateway/portal:0.2.0`。
+默认正式镜像名：`aigateway/portal:1.0.0`。
 
 构建镜像：
 ```bash

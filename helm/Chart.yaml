@@ -1,6 +1,6 @@
 apiVersion: v2
-appVersion: 0.2.0
+appVersion: 1.0.0
 description: AIGateway user portal (frontend + backend, PostgreSQL only)
 name: aigateway-portal
 type: application
-version: 0.2.0
+version: 1.0.0

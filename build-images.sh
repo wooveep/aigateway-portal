@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${ROOT_DIR}"
 
-IMAGE_NAME="${IMAGE_NAME:-aigateway/portal:0.2.0}"
+IMAGE_NAME="${IMAGE_NAME:-aigateway/portal:1.0.0}"
 DOCKERFILE="${DOCKERFILE:-backend/Dockerfile}"
 CONTEXT_DIR="${CONTEXT_DIR:-.}"
 PLATFORMS="${PLATFORMS:-}"
