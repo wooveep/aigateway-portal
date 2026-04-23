@@ -70,9 +70,10 @@ export interface ModelInfo {
   id: string;
   name: string;
   vendor: string;
+  modelType?: string;
   capability: string;
-  inputTokenPrice: number;
-  outputTokenPrice: number;
+  inputPricePerMillionTokens: number;
+  outputPricePerMillionTokens: number;
   endpoint: string;
   requestUrl?: string;
   sdk: string;
@@ -80,16 +81,32 @@ export interface ModelInfo {
   summary: string;
   tags?: string[];
   capabilities?: {
+    inputModalities?: string[];
+    outputModalities?: string[];
+    featureFlags?: string[];
     modalities?: string[];
     features?: string[];
     requestKinds?: string[];
   };
   pricing?: {
     currency?: string;
-    inputPer1K?: number;
-    outputPer1K?: number;
+    inputCostPerMillionTokens?: number;
+    outputCostPerMillionTokens?: number;
+    pricePerImage?: number;
+    pricePerSecond?: number;
+    pricePerSecond720p?: number;
+    pricePerSecond1080p?: number;
+    pricePer10kChars?: number;
+    cacheCreationInputTokenCostPerMillionTokens?: number;
+    cacheReadInputTokenCostPerMillionTokens?: number;
   };
   limits?: {
+    maxInputTokens?: number;
+    maxOutputTokens?: number;
+    contextWindowTokens?: number;
+    maxReasoningTokens?: number;
+    maxInputTokensInReasoningMode?: number;
+    maxOutputTokensInReasoningMode?: number;
     rpm?: number;
     tpm?: number;
     contextWindow?: number;

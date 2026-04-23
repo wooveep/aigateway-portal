@@ -5,6 +5,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { fetchAgentDetail, fetchAgents } from '../api';
 import { useManagedAccountScope } from '../composables/useManagedAccountScope';
 import type { AgentInfo } from '../types';
+import { copyTextToClipboard } from '../utils/clipboard';
 import { formatDateDisplay } from '../utils/time';
 
 const agents = ref<AgentInfo[]>([]);
@@ -21,7 +22,7 @@ const emptyState = computed(() => !loading.value && agents.value.length === 0);
 
 const copyText = async (value: string) => {
   try {
-    await navigator.clipboard.writeText(value);
+    await copyTextToClipboard(value);
     message.success('地址已复制');
   } catch {
     message.error('复制失败');

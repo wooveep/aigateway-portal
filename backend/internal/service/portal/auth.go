@@ -217,7 +217,7 @@ func (s *Service) AuthenticateSession(ctx context.Context, token string) (model.
 		SELECT u.consumer_name, u.display_name, u.email, u.user_level, u.status, u.source
 		FROM portal_session s
 		JOIN portal_user u ON u.consumer_name = s.consumer_name
-		WHERE s.session_token = ? AND s.expires_at > ? AND COALESCE(u.is_deleted, 0) = 0`, token, model.NowInAppLocation())
+		WHERE s.session_token = ? AND s.expires_at > ? AND COALESCE(u.is_deleted, FALSE) = FALSE`, token, model.NowInAppLocation())
 	if err != nil {
 		return model.AuthUser{}, gerror.Wrap(err, "query session failed")
 	}
@@ -272,7 +272,7 @@ func (s *Service) getUserByName(ctx context.Context, consumerName string) (*mode
 			u.user_level, u.status, u.source, u.password_hash, u.last_login_at
 		FROM portal_user u
 		LEFT JOIN org_account_membership m ON m.consumer_name = u.consumer_name
-		WHERE u.consumer_name = ? AND COALESCE(u.is_deleted, 0) = 0`, consumerName)
+		WHERE u.consumer_name = ? AND COALESCE(u.is_deleted, FALSE) = FALSE`, consumerName)
 	if err != nil {
 		return nil, gerror.Wrap(err, "query user failed")
 	}

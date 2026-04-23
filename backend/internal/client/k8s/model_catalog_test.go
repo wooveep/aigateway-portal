@@ -84,6 +84,31 @@ func TestExtractExactModelHeader(t *testing.T) {
 	}
 }
 
+func TestInferMappedModel(t *testing.T) {
+	t.Parallel()
+
+	if got := inferMappedModel(map[string]any{"*": "qwen3.6-plus"}); got != "qwen3.6-plus" {
+		t.Fatalf("inferMappedModel() wildcard = %q, want %q", got, "qwen3.6-plus")
+	}
+	if got := inferMappedModel(map[string]any{"qwen": "qwen3.6-plus"}); got != "qwen3.6-plus" {
+		t.Fatalf("inferMappedModel() single entry = %q, want %q", got, "qwen3.6-plus")
+	}
+	if got := inferMappedModel(map[string]any{"qwen": "", "other": "x"}); got != "" {
+		t.Fatalf("inferMappedModel() multi entry = %q, want empty", got)
+	}
+}
+
+func TestRouteBindingName(t *testing.T) {
+	t.Parallel()
+
+	if got := routeBindingName("ai-route-qwen.internal-internal"); got != "ai-route-qwen.internal" {
+		t.Fatalf("routeBindingName() = %q, want %q", got, "ai-route-qwen.internal")
+	}
+	if got := routeBindingName("ai-route-qwen.internal"); got != "ai-route-qwen.internal" {
+		t.Fatalf("routeBindingName() public = %q, want %q", got, "ai-route-qwen.internal")
+	}
+}
+
 func TestIsInternalAIRoutePath(t *testing.T) {
 	t.Parallel()
 

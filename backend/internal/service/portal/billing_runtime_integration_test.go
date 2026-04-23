@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/gogf/gf/contrib/drivers/mysql/v2"
+	_ "github.com/gogf/gf/contrib/drivers/pgsql/v2"
 	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/stretchr/testify/require"
 
@@ -18,13 +18,14 @@ import (
 )
 
 func TestBillingUsageEventPersistsWithoutPrometheus(t *testing.T) {
-	dsn := os.Getenv("PORTAL_BILLING_MYSQL_DSN")
+	dsn := os.Getenv("PORTAL_BILLING_POSTGRES_DSN")
 	if dsn == "" {
-		t.Skip("PORTAL_BILLING_MYSQL_DSN is not set")
+		t.Skip("PORTAL_BILLING_POSTGRES_DSN is not set")
 	}
 
 	cfg := config.Config{
-		MySQLDSN:            dsn,
+		DBDriver:            "postgres",
+		DBDSN:               dsn,
 		SessionSecret:       "test-secret",
 		SessionCookieName:   "portal-test-session",
 		UsageSyncEnabled:    true,
@@ -84,13 +85,13 @@ func TestBillingUsageEventPersistsWithoutPrometheus(t *testing.T) {
 }
 
 func TestBootstrapLegacyBillingTransactionsRefreshesExistingUsageRows(t *testing.T) {
-	dsn := os.Getenv("PORTAL_BILLING_MYSQL_DSN")
+	dsn := os.Getenv("PORTAL_BILLING_POSTGRES_DSN")
 	if dsn == "" {
-		t.Skip("PORTAL_BILLING_MYSQL_DSN is not set")
+		t.Skip("PORTAL_BILLING_POSTGRES_DSN is not set")
 	}
 
 	db, err := gdb.New(gdb.ConfigNode{
-		Type: "mysql",
+		Type: "pgsql",
 		Link: dsn,
 	})
 	require.NoError(t, err)

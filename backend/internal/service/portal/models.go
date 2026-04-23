@@ -254,38 +254,32 @@ func (s *Service) listModelsFromPublishedBindings(ctx context.Context) ([]model.
 			a.display_name AS name,
 			b.provider_name AS vendor,
 			a.intro AS summary,
+			a.model_type,
 			a.tags_json,
+			a.input_modalities_json,
+			a.output_modalities_json,
+			a.feature_flags_json,
 			a.modalities_json,
 			a.features_json,
 			a.request_kinds_json,
+			b.pricing_json,
+			b.limits_json,
 			b.rpm,
 			b.tpm,
 			b.context_window,
 			b.endpoint,
 			b.protocol,
-			p.input_price_per_1k_micro_yuan,
-			p.output_price_per_1k_micro_yuan,
-			p.input_request_price_micro_yuan,
-			p.cache_creation_input_token_price_per_1k_micro_yuan,
-			p.cache_creation_input_token_price_above_1hr_per_1k_micro_yuan,
-			p.cache_read_input_token_price_per_1k_micro_yuan,
-			p.input_token_price_above_200k_per_1k_micro_yuan,
-			p.output_token_price_above_200k_per_1k_micro_yuan,
-			p.cache_creation_input_token_price_above_200k_per_1k_micro_yuan,
-			p.cache_read_input_token_price_above_200k_per_1k_micro_yuan,
-			p.output_image_price_micro_yuan,
-			p.output_image_token_price_per_1k_micro_yuan,
-			p.input_image_price_micro_yuan,
-			p.input_image_token_price_per_1k_micro_yuan,
-			p.supports_prompt_caching,
+			v.version_id,
+			v.pricing_json AS version_pricing_json,
 			GREATEST(a.updated_at, b.updated_at) AS updated_at
 		FROM portal_model_binding b
 		INNER JOIN portal_model_asset a
 			ON a.asset_id = b.asset_id
-		LEFT JOIN billing_model_price_version p
-			ON p.model_id = b.model_id
-		   AND p.status = 'active'
-		   AND p.effective_to IS NULL
+		LEFT JOIN portal_model_binding_price_version v
+			ON v.asset_id = b.asset_id
+		   AND v.binding_id = b.binding_id
+		   AND v.active = TRUE
+		   AND v.effective_to IS NULL
 		WHERE b.status = 'published'
 		ORDER BY a.canonical_name ASC, b.model_id ASC`)
 	if err != nil {
@@ -306,38 +300,32 @@ func (s *Service) getModelFromPublishedBindings(ctx context.Context, id string) 
 			a.display_name AS name,
 			b.provider_name AS vendor,
 			a.intro AS summary,
+			a.model_type,
 			a.tags_json,
+			a.input_modalities_json,
+			a.output_modalities_json,
+			a.feature_flags_json,
 			a.modalities_json,
 			a.features_json,
 			a.request_kinds_json,
+			b.pricing_json,
+			b.limits_json,
 			b.rpm,
 			b.tpm,
 			b.context_window,
 			b.endpoint,
 			b.protocol,
-			p.input_price_per_1k_micro_yuan,
-			p.output_price_per_1k_micro_yuan,
-			p.input_request_price_micro_yuan,
-			p.cache_creation_input_token_price_per_1k_micro_yuan,
-			p.cache_creation_input_token_price_above_1hr_per_1k_micro_yuan,
-			p.cache_read_input_token_price_per_1k_micro_yuan,
-			p.input_token_price_above_200k_per_1k_micro_yuan,
-			p.output_token_price_above_200k_per_1k_micro_yuan,
-			p.cache_creation_input_token_price_above_200k_per_1k_micro_yuan,
-			p.cache_read_input_token_price_above_200k_per_1k_micro_yuan,
-			p.output_image_price_micro_yuan,
-			p.output_image_token_price_per_1k_micro_yuan,
-			p.input_image_price_micro_yuan,
-			p.input_image_token_price_per_1k_micro_yuan,
-			p.supports_prompt_caching,
+			v.version_id,
+			v.pricing_json AS version_pricing_json,
 			GREATEST(a.updated_at, b.updated_at) AS updated_at
 		FROM portal_model_binding b
 		INNER JOIN portal_model_asset a
 			ON a.asset_id = b.asset_id
-		LEFT JOIN billing_model_price_version p
-			ON p.model_id = b.model_id
-		   AND p.status = 'active'
-		   AND p.effective_to IS NULL
+		LEFT JOIN portal_model_binding_price_version v
+			ON v.asset_id = b.asset_id
+		   AND v.binding_id = b.binding_id
+		   AND v.active = TRUE
+		   AND v.effective_to IS NULL
 		WHERE b.status = 'published'
 		  AND b.model_id = ?
 		LIMIT 1`, id)
@@ -358,38 +346,32 @@ func (s *Service) listVisibleModelsFromPublishedBindings(ctx context.Context, us
 			a.display_name AS name,
 			b.provider_name AS vendor,
 			a.intro AS summary,
+			a.model_type,
 			a.tags_json,
+			a.input_modalities_json,
+			a.output_modalities_json,
+			a.feature_flags_json,
 			a.modalities_json,
 			a.features_json,
 			a.request_kinds_json,
+			b.pricing_json,
+			b.limits_json,
 			b.rpm,
 			b.tpm,
 			b.context_window,
 			b.endpoint,
 			b.protocol,
-			p.input_price_per_1k_micro_yuan,
-			p.output_price_per_1k_micro_yuan,
-			p.input_request_price_micro_yuan,
-			p.cache_creation_input_token_price_per_1k_micro_yuan,
-			p.cache_creation_input_token_price_above_1hr_per_1k_micro_yuan,
-			p.cache_read_input_token_price_per_1k_micro_yuan,
-			p.input_token_price_above_200k_per_1k_micro_yuan,
-			p.output_token_price_above_200k_per_1k_micro_yuan,
-			p.cache_creation_input_token_price_above_200k_per_1k_micro_yuan,
-			p.cache_read_input_token_price_above_200k_per_1k_micro_yuan,
-			p.output_image_price_micro_yuan,
-			p.output_image_token_price_per_1k_micro_yuan,
-			p.input_image_price_micro_yuan,
-			p.input_image_token_price_per_1k_micro_yuan,
-			p.supports_prompt_caching,
+			v.version_id,
+			v.pricing_json AS version_pricing_json,
 			GREATEST(a.updated_at, b.updated_at) AS updated_at
 		FROM portal_model_binding b
 		INNER JOIN portal_model_asset a
 			ON a.asset_id = b.asset_id
-		LEFT JOIN billing_model_price_version p
-			ON p.model_id = b.model_id
-		   AND p.status = 'active'
-		   AND p.effective_to IS NULL
+		LEFT JOIN portal_model_binding_price_version v
+			ON v.asset_id = b.asset_id
+		   AND v.binding_id = b.binding_id
+		   AND v.active = TRUE
+		   AND v.effective_to IS NULL
 		WHERE b.status = 'published'
 		ORDER BY a.canonical_name ASC, b.model_id ASC`)
 	if err != nil {
@@ -421,38 +403,32 @@ func (s *Service) getVisibleModelFromPublishedBindings(ctx context.Context, id s
 			a.display_name AS name,
 			b.provider_name AS vendor,
 			a.intro AS summary,
+			a.model_type,
 			a.tags_json,
+			a.input_modalities_json,
+			a.output_modalities_json,
+			a.feature_flags_json,
 			a.modalities_json,
 			a.features_json,
 			a.request_kinds_json,
+			b.pricing_json,
+			b.limits_json,
 			b.rpm,
 			b.tpm,
 			b.context_window,
 			b.endpoint,
 			b.protocol,
-			p.input_price_per_1k_micro_yuan,
-			p.output_price_per_1k_micro_yuan,
-			p.input_request_price_micro_yuan,
-			p.cache_creation_input_token_price_per_1k_micro_yuan,
-			p.cache_creation_input_token_price_above_1hr_per_1k_micro_yuan,
-			p.cache_read_input_token_price_per_1k_micro_yuan,
-			p.input_token_price_above_200k_per_1k_micro_yuan,
-			p.output_token_price_above_200k_per_1k_micro_yuan,
-			p.cache_creation_input_token_price_above_200k_per_1k_micro_yuan,
-			p.cache_read_input_token_price_above_200k_per_1k_micro_yuan,
-			p.output_image_price_micro_yuan,
-			p.output_image_token_price_per_1k_micro_yuan,
-			p.input_image_price_micro_yuan,
-			p.input_image_token_price_per_1k_micro_yuan,
-			p.supports_prompt_caching,
+			v.version_id,
+			v.pricing_json AS version_pricing_json,
 			GREATEST(a.updated_at, b.updated_at) AS updated_at
 		FROM portal_model_binding b
 		INNER JOIN portal_model_asset a
 			ON a.asset_id = b.asset_id
-		LEFT JOIN billing_model_price_version p
-			ON p.model_id = b.model_id
-		   AND p.status = 'active'
-		   AND p.effective_to IS NULL
+		LEFT JOIN portal_model_binding_price_version v
+			ON v.asset_id = b.asset_id
+		   AND v.binding_id = b.binding_id
+		   AND v.active = TRUE
+		   AND v.effective_to IS NULL
 		WHERE b.status = 'published'
 		  AND b.model_id = ?
 		LIMIT 1`, id)
@@ -616,45 +592,23 @@ func toPortalModelInfoFromRecord(record gdb.Record) model.ModelInfo {
 	if name == "" {
 		name = modelID
 	}
-	inputPer1K := microYuanToRMB(record["input_price_per_1k_micro_yuan"].Int64())
-	outputPer1K := microYuanToRMB(record["output_price_per_1k_micro_yuan"].Int64())
-	inputPerToken := inputPer1K / 1000
-	outputPerToken := outputPer1K / 1000
+	pricing := modelPricingFromPriceVersionRecord(record)
 	updatedAt := model.DayText(model.NowInAppLocation())
 	if updatedTime := record["updated_at"].Time(); !updatedTime.IsZero() {
 		updatedAt = model.DayText(updatedTime)
 	}
 	return model.ModelInfo{
-		ID:               modelID,
-		Name:             name,
-		Vendor:           strings.TrimSpace(record["vendor"].String()),
-		Capability:       strings.TrimSpace(record["capability"].String()),
-		InputTokenPrice:  inputPer1K,
-		OutputTokenPrice: outputPer1K,
-		Endpoint:         strings.TrimSpace(record["endpoint"].String()),
-		SDK:              strings.TrimSpace(record["sdk"].String()),
-		UpdatedAt:        updatedAt,
-		Summary:          strings.TrimSpace(record["summary"].String()),
-		Pricing: model.ModelPricing{
-			Currency:                                   billingCurrencyCNY,
-			InputPer1K:                                 inputPer1K,
-			OutputPer1K:                                outputPer1K,
-			InputCostPerToken:                          inputPerToken,
-			OutputCostPerToken:                         outputPerToken,
-			InputCostPerRequest:                        microYuanToRMB(record["input_request_price_micro_yuan"].Int64()),
-			CacheCreationInputTokenCost:                microYuanToRMB(record["cache_creation_input_token_price_per_1k_micro_yuan"].Int64()) / 1000,
-			CacheCreationInputTokenCostAbove1hr:        microYuanToRMB(record["cache_creation_input_token_price_above_1hr_per_1k_micro_yuan"].Int64()) / 1000,
-			CacheReadInputTokenCost:                    microYuanToRMB(record["cache_read_input_token_price_per_1k_micro_yuan"].Int64()) / 1000,
-			InputCostPerTokenAbove200kTokens:           microYuanToRMB(record["input_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
-			OutputCostPerTokenAbove200kTokens:          microYuanToRMB(record["output_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
-			CacheCreationInputTokenCostAbove200kTokens: microYuanToRMB(record["cache_creation_input_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
-			CacheReadInputTokenCostAbove200kTokens:     microYuanToRMB(record["cache_read_input_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
-			OutputCostPerImage:                         microYuanToRMB(record["output_image_price_micro_yuan"].Int64()),
-			OutputCostPerImageToken:                    microYuanToRMB(record["output_image_token_price_per_1k_micro_yuan"].Int64()) / 1000,
-			InputCostPerImage:                          microYuanToRMB(record["input_image_price_micro_yuan"].Int64()),
-			InputCostPerImageToken:                     microYuanToRMB(record["input_image_token_price_per_1k_micro_yuan"].Int64()) / 1000,
-			SupportsPromptCaching:                      record["supports_prompt_caching"].Int64() > 0,
-		},
+		ID:                          modelID,
+		Name:                        name,
+		Vendor:                      strings.TrimSpace(record["vendor"].String()),
+		Capability:                  strings.TrimSpace(record["capability"].String()),
+		InputPricePerMillionTokens:  pricing.InputCostPerMillionTokens,
+		OutputPricePerMillionTokens: pricing.OutputCostPerMillionTokens,
+		Endpoint:                    strings.TrimSpace(record["endpoint"].String()),
+		SDK:                         strings.TrimSpace(record["sdk"].String()),
+		UpdatedAt:                   updatedAt,
+		Summary:                     strings.TrimSpace(record["summary"].String()),
+		Pricing:                     pricing,
 	}
 }
 
@@ -664,17 +618,29 @@ func toPortalModelInfoFromPublishedBinding(record gdb.Record) model.ModelInfo {
 	if name == "" {
 		name = modelID
 	}
+	modelType := normalizeModelType(record["model_type"].String())
 	capabilities := model.ModelCapabilities{
-		Modalities:   parseStringList(record["modalities_json"].String()),
-		Features:     parseStringList(record["features_json"].String()),
-		RequestKinds: parseStringList(record["request_kinds_json"].String()),
+		InputModalities:  firstNonEmptyStringSlice(parseStringList(record["input_modalities_json"].String()), parseStringList(record["modalities_json"].String())),
+		OutputModalities: firstNonEmptyStringSlice(parseStringList(record["output_modalities_json"].String()), parseStringList(record["modalities_json"].String())),
+		FeatureFlags:     firstNonEmptyStringSlice(parseStringList(record["feature_flags_json"].String()), parseStringList(record["features_json"].String())),
+		Modalities:       parseStringList(record["modalities_json"].String()),
+		Features:         parseStringList(record["features_json"].String()),
+		RequestKinds:     parseStringList(record["request_kinds_json"].String()),
 	}
-	limits := model.ModelLimits{
-		RPM:           record["rpm"].Int64(),
-		TPM:           record["tpm"].Int64(),
-		ContextWindow: record["context_window"].Int64(),
+	limits := parseModelLimits(record["limits_json"].String())
+	if limits.RPM == 0 {
+		limits.RPM = record["rpm"].Int64()
 	}
-	capabilitySummary := strings.Join(append(append([]string{}, capabilities.Modalities...), capabilities.Features...), " / ")
+	if limits.TPM == 0 {
+		limits.TPM = record["tpm"].Int64()
+	}
+	if limits.ContextWindowTokens == 0 {
+		limits.ContextWindowTokens = record["context_window"].Int64()
+	}
+	if limits.ContextWindow == 0 {
+		limits.ContextWindow = limits.ContextWindowTokens
+	}
+	capabilitySummary := buildCapabilitySummary(capabilities)
 	if capabilitySummary == "" {
 		capabilitySummary = strings.TrimSpace(record["vendor"].String())
 	}
@@ -686,48 +652,27 @@ func toPortalModelInfoFromPublishedBinding(record gdb.Record) model.ModelInfo {
 	if sdk == "" {
 		sdk = "openai/v1"
 	}
-	inputPer1K := microYuanToRMB(record["input_price_per_1k_micro_yuan"].Int64())
-	outputPer1K := microYuanToRMB(record["output_price_per_1k_micro_yuan"].Int64())
-	inputPerToken := inputPer1K / 1000
-	outputPerToken := outputPer1K / 1000
+	pricing, _, _ := parseModelBindingPricingJSON(firstNonEmpty(record["version_pricing_json"].String(), record["pricing_json"].String()), modelType)
 	updatedAt := model.DayText(model.NowInAppLocation())
 	if updatedTime := record["updated_at"].Time(); !updatedTime.IsZero() {
 		updatedAt = model.DayText(updatedTime)
 	}
 	return model.ModelInfo{
-		ID:               modelID,
-		Name:             name,
-		Vendor:           strings.TrimSpace(record["vendor"].String()),
-		Capability:       capabilitySummary,
-		InputTokenPrice:  inputPer1K,
-		OutputTokenPrice: outputPer1K,
-		Endpoint:         endpoint,
-		SDK:              sdk,
-		UpdatedAt:        updatedAt,
-		Summary:          strings.TrimSpace(record["summary"].String()),
-		Tags:             parseStringList(record["tags_json"].String()),
-		Capabilities:     capabilities,
-		Limits:           limits,
-		Pricing: model.ModelPricing{
-			Currency:                                   billingCurrencyCNY,
-			InputPer1K:                                 inputPer1K,
-			OutputPer1K:                                outputPer1K,
-			InputCostPerToken:                          inputPerToken,
-			OutputCostPerToken:                         outputPerToken,
-			InputCostPerRequest:                        microYuanToRMB(record["input_request_price_micro_yuan"].Int64()),
-			CacheCreationInputTokenCost:                microYuanToRMB(record["cache_creation_input_token_price_per_1k_micro_yuan"].Int64()) / 1000,
-			CacheCreationInputTokenCostAbove1hr:        microYuanToRMB(record["cache_creation_input_token_price_above_1hr_per_1k_micro_yuan"].Int64()) / 1000,
-			CacheReadInputTokenCost:                    microYuanToRMB(record["cache_read_input_token_price_per_1k_micro_yuan"].Int64()) / 1000,
-			InputCostPerTokenAbove200kTokens:           microYuanToRMB(record["input_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
-			OutputCostPerTokenAbove200kTokens:          microYuanToRMB(record["output_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
-			CacheCreationInputTokenCostAbove200kTokens: microYuanToRMB(record["cache_creation_input_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
-			CacheReadInputTokenCostAbove200kTokens:     microYuanToRMB(record["cache_read_input_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
-			OutputCostPerImage:                         microYuanToRMB(record["output_image_price_micro_yuan"].Int64()),
-			OutputCostPerImageToken:                    microYuanToRMB(record["output_image_token_price_per_1k_micro_yuan"].Int64()) / 1000,
-			InputCostPerImage:                          microYuanToRMB(record["input_image_price_micro_yuan"].Int64()),
-			InputCostPerImageToken:                     microYuanToRMB(record["input_image_token_price_per_1k_micro_yuan"].Int64()) / 1000,
-			SupportsPromptCaching:                      record["supports_prompt_caching"].Int64() > 0,
-		},
+		ID:                          modelID,
+		Name:                        name,
+		Vendor:                      strings.TrimSpace(record["vendor"].String()),
+		ModelType:                   modelType,
+		Capability:                  capabilitySummary,
+		InputPricePerMillionTokens:  pricing.InputCostPerMillionTokens,
+		OutputPricePerMillionTokens: pricing.OutputCostPerMillionTokens,
+		Endpoint:                    endpoint,
+		SDK:                         sdk,
+		UpdatedAt:                   updatedAt,
+		Summary:                     strings.TrimSpace(record["summary"].String()),
+		Tags:                        parseStringList(record["tags_json"].String()),
+		Capabilities:                capabilities,
+		Limits:                      limits,
+		Pricing:                     pricing,
 	}
 }
 
@@ -747,4 +692,25 @@ func parseStringList(raw string) []string {
 		}
 	}
 	return result
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func parseModelLimits(raw string) model.ModelLimits {
+	if strings.TrimSpace(raw) == "" {
+		return model.ModelLimits{}
+	}
+	limits := model.ModelLimits{}
+	if err := json.Unmarshal([]byte(raw), &limits); err != nil {
+		return model.ModelLimits{}
+	}
+	return limits
 }

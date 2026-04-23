@@ -22,7 +22,7 @@ type userOrgContext struct {
 }
 
 func (s *Service) ensureOrganizationSchema(ctx context.Context) error {
-	if err := shared.ApplyToGDB(ctx, s.db); err != nil {
+	if err := shared.ApplyToGDBWithDriver(ctx, s.db, s.cfg.DBDriver); err != nil {
 		return gerror.Wrap(err, "organization migration failed")
 	}
 	if err := s.ensureRootDepartment(ctx); err != nil {
@@ -39,12 +39,12 @@ func (s *Service) ensureRootDepartment(ctx context.Context) error {
 		INSERT INTO org_department
 		(department_id, name, parent_department_id, admin_consumer_name, path, level, sort_order, status)
 		VALUES (?, ?, NULL, NULL, ?, 0, 0, 'active')
-		ON DUPLICATE KEY UPDATE
-		name = VALUES(name),
-		path = VALUES(path),
-		level = VALUES(level),
-		sort_order = VALUES(sort_order),
-		status = VALUES(status)`,
+		`+s.upsertClause([]string{"department_id"},
+		s.assignExcluded("name"),
+		s.assignExcluded("path"),
+		s.assignExcluded("level"),
+		s.assignExcluded("sort_order"),
+		s.assignExcluded("status"))+``,
 		orgRootDepartmentID,
 		"ROOT",
 		orgRootDepartmentID,
@@ -60,9 +60,8 @@ func (s *Service) ensureMembershipRows(ctx context.Context) error {
 		INSERT INTO org_account_membership (consumer_name, department_id, parent_consumer_name)
 		SELECT consumer_name, NULL, NULL
 		FROM portal_user
-		WHERE COALESCE(is_deleted, 0) = 0
-		ON DUPLICATE KEY UPDATE
-		consumer_name = VALUES(consumer_name)`); err != nil {
+		WHERE COALESCE(is_deleted, FALSE) = FALSE
+		`+s.upsertClause([]string{"consumer_name"}, s.assignExcluded("consumer_name"))+``); err != nil {
 		return gerror.Wrap(err, "ensure account membership rows failed")
 	}
 	return nil
@@ -76,8 +75,7 @@ func (s *Service) ensureMembershipForConsumer(ctx context.Context, consumerName 
 	if _, err := s.db.Exec(ctx, `
 		INSERT INTO org_account_membership (consumer_name, department_id, parent_consumer_name)
 		VALUES (?, NULL, NULL)
-		ON DUPLICATE KEY UPDATE
-		consumer_name = VALUES(consumer_name)`, normalizedConsumer); err != nil {
+		`+s.upsertClause([]string{"consumer_name"}, s.assignExcluded("consumer_name"))+``, normalizedConsumer); err != nil {
 		return gerror.Wrap(err, "ensure consumer membership failed")
 	}
 	return nil

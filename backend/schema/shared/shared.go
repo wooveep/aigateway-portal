@@ -3,14 +3,22 @@ package shared
 import (
 	"context"
 	"database/sql"
+	"strconv"
+	"strings"
 
 	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/errors/gerror"
 )
 
+type columnMigration struct {
+	table  string
+	column string
+	ddl    string
+}
+
 var tableDDLs = []string{
 	`CREATE TABLE IF NOT EXISTS portal_user (
-		id BIGINT AUTO_INCREMENT PRIMARY KEY,
+		id BIGSERIAL PRIMARY KEY,
 		consumer_name VARCHAR(128) NOT NULL UNIQUE,
 		display_name VARCHAR(128) NOT NULL,
 		email VARCHAR(255) NOT NULL DEFAULT '',
@@ -18,24 +26,24 @@ var tableDDLs = []string{
 		status VARCHAR(16) NOT NULL DEFAULT 'active',
 		source VARCHAR(16) NOT NULL DEFAULT 'portal',
 		user_level VARCHAR(16) NOT NULL DEFAULT 'normal',
-		is_deleted TINYINT(1) NOT NULL DEFAULT 0,
-		deleted_at DATETIME NULL,
-		last_login_at DATETIME NULL,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+		deleted_at TIMESTAMP NULL,
+		last_login_at TIMESTAMP NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
 	`CREATE TABLE IF NOT EXISTS portal_invite_code (
-		id BIGINT AUTO_INCREMENT PRIMARY KEY,
+		id BIGSERIAL PRIMARY KEY,
 		invite_code VARCHAR(64) NOT NULL UNIQUE,
 		status VARCHAR(16) NOT NULL DEFAULT 'active',
-		expires_at DATETIME NOT NULL,
+		expires_at TIMESTAMP NOT NULL,
 		used_by_consumer VARCHAR(128) NULL,
-		used_at DATETIME NULL,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		used_at TIMESTAMP NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
 	`CREATE TABLE IF NOT EXISTS org_department (
-		id BIGINT AUTO_INCREMENT PRIMARY KEY,
+		id BIGSERIAL PRIMARY KEY,
 		department_id VARCHAR(64) NOT NULL UNIQUE,
 		name VARCHAR(128) NOT NULL,
 		parent_department_id VARCHAR(64) NULL,
@@ -44,36 +52,30 @@ var tableDDLs = []string{
 		level INT NOT NULL DEFAULT 0,
 		sort_order INT NOT NULL DEFAULT 0,
 		status VARCHAR(16) NOT NULL DEFAULT 'active',
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-		INDEX idx_org_department_parent (parent_department_id),
-		INDEX idx_org_department_status (status),
-		UNIQUE KEY uk_org_department_admin_consumer (admin_consumer_name)
-	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		CONSTRAINT uk_org_department_admin_consumer UNIQUE (admin_consumer_name)
+	)`,
 	`CREATE TABLE IF NOT EXISTS org_account_membership (
-		id BIGINT AUTO_INCREMENT PRIMARY KEY,
+		id BIGSERIAL PRIMARY KEY,
 		consumer_name VARCHAR(128) NOT NULL UNIQUE,
 		department_id VARCHAR(64) NULL,
 		parent_consumer_name VARCHAR(128) NULL,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-		INDEX idx_org_account_department (department_id),
-		INDEX idx_org_account_parent (parent_consumer_name)
-	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
 	`CREATE TABLE IF NOT EXISTS asset_grant (
-		id BIGINT AUTO_INCREMENT PRIMARY KEY,
+		id BIGSERIAL PRIMARY KEY,
 		asset_type VARCHAR(32) NOT NULL,
 		asset_id VARCHAR(128) NOT NULL,
 		subject_type VARCHAR(32) NOT NULL,
 		subject_id VARCHAR(128) NOT NULL,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-		UNIQUE KEY uk_asset_grant_subject (asset_type, asset_id, subject_type, subject_id),
-		INDEX idx_asset_grant_asset (asset_type, asset_id),
-		INDEX idx_asset_grant_subject_lookup (subject_type, subject_id)
-	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		CONSTRAINT uk_asset_grant_subject UNIQUE (asset_type, asset_id, subject_type, subject_id)
+	)`,
 	`CREATE TABLE IF NOT EXISTS quota_policy_user (
-		id BIGINT AUTO_INCREMENT PRIMARY KEY,
+		id BIGSERIAL PRIMARY KEY,
 		consumer_name VARCHAR(128) NOT NULL UNIQUE,
 		limit_total_micro_yuan BIGINT NOT NULL DEFAULT 0,
 		limit_5h_micro_yuan BIGINT NOT NULL DEFAULT 0,
@@ -82,26 +84,29 @@ var tableDDLs = []string{
 		daily_reset_time VARCHAR(5) NOT NULL DEFAULT '00:00',
 		limit_weekly_micro_yuan BIGINT NOT NULL DEFAULT 0,
 		limit_monthly_micro_yuan BIGINT NOT NULL DEFAULT 0,
-		cost_reset_at DATETIME NULL,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		cost_reset_at TIMESTAMP NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
 	`CREATE TABLE IF NOT EXISTS portal_model_asset (
-		id BIGINT AUTO_INCREMENT PRIMARY KEY,
+		id BIGSERIAL PRIMARY KEY,
 		asset_id VARCHAR(128) NOT NULL UNIQUE,
 		canonical_name VARCHAR(128) NOT NULL UNIQUE,
 		display_name VARCHAR(128) NOT NULL,
 		intro TEXT NOT NULL,
+		model_type VARCHAR(64) NULL,
 		tags_json TEXT NULL,
+		input_modalities_json TEXT NULL,
+		output_modalities_json TEXT NULL,
+		feature_flags_json TEXT NULL,
 		modalities_json TEXT NULL,
 		features_json TEXT NULL,
 		request_kinds_json TEXT NULL,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-		INDEX idx_portal_model_asset_display_name (display_name)
-	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
 	`CREATE TABLE IF NOT EXISTS portal_model_binding (
-		id BIGINT AUTO_INCREMENT PRIMARY KEY,
+		id BIGSERIAL PRIMARY KEY,
 		binding_id VARCHAR(128) NOT NULL UNIQUE,
 		asset_id VARCHAR(128) NOT NULL,
 		model_id VARCHAR(128) NOT NULL UNIQUE,
@@ -110,21 +115,19 @@ var tableDDLs = []string{
 		protocol VARCHAR(128) NOT NULL DEFAULT 'openai/v1',
 		endpoint VARCHAR(255) NOT NULL DEFAULT '-',
 		pricing_json TEXT NOT NULL,
+		limits_json TEXT NULL,
 		rpm BIGINT NULL,
 		tpm BIGINT NULL,
 		context_window BIGINT NULL,
 		status VARCHAR(16) NOT NULL DEFAULT 'draft',
-		published_at DATETIME NULL,
-		unpublished_at DATETIME NULL,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-		UNIQUE KEY uk_portal_model_binding_target (asset_id, provider_name, target_model),
-		INDEX idx_portal_model_binding_asset (asset_id),
-		INDEX idx_portal_model_binding_status (status),
-		INDEX idx_portal_model_binding_provider (provider_name)
-	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		published_at TIMESTAMP NULL,
+		unpublished_at TIMESTAMP NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		CONSTRAINT uk_portal_model_binding_target UNIQUE (asset_id, provider_name, target_model)
+	)`,
 	`CREATE TABLE IF NOT EXISTS portal_agent_catalog (
-		id BIGINT AUTO_INCREMENT PRIMARY KEY,
+		id BIGSERIAL PRIMARY KEY,
 		agent_id VARCHAR(128) NOT NULL UNIQUE,
 		canonical_name VARCHAR(128) NOT NULL UNIQUE,
 		display_name VARCHAR(128) NOT NULL,
@@ -138,39 +141,97 @@ var tableDDLs = []string{
 		resource_summary TEXT NOT NULL,
 		prompt_summary TEXT NOT NULL,
 		status VARCHAR(16) NOT NULL DEFAULT 'draft',
-		published_at DATETIME NULL,
-		unpublished_at DATETIME NULL,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-		INDEX idx_portal_agent_catalog_status (status),
-		INDEX idx_portal_agent_catalog_display_name (display_name)
-	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		published_at TIMESTAMP NULL,
+		unpublished_at TIMESTAMP NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
 }
 
-var columnDDLs = []struct {
-	table  string
-	column string
-	sql    string
-}{
-	{"portal_user", "user_level", `ALTER TABLE portal_user ADD COLUMN user_level VARCHAR(16) NOT NULL DEFAULT 'normal'`},
-	{"portal_user", "is_deleted", `ALTER TABLE portal_user ADD COLUMN is_deleted TINYINT(1) NOT NULL DEFAULT 0 AFTER user_level`},
-	{"portal_user", "deleted_at", `ALTER TABLE portal_user ADD COLUMN deleted_at DATETIME NULL AFTER is_deleted`},
-	{"portal_model_asset", "request_kinds_json", `ALTER TABLE portal_model_asset ADD COLUMN request_kinds_json TEXT NULL AFTER features_json`},
-	{"org_department", "admin_consumer_name", `ALTER TABLE org_department ADD COLUMN admin_consumer_name VARCHAR(128) NULL AFTER parent_department_id`},
+var columnDDLs = []columnMigration{
+	{
+		table:  "portal_user",
+		column: "user_level",
+		ddl:    `ALTER TABLE portal_user ADD COLUMN user_level VARCHAR(16) NOT NULL DEFAULT 'normal'`,
+	},
+	{
+		table:  "portal_user",
+		column: "is_deleted",
+		ddl:    `ALTER TABLE portal_user ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE`,
+	},
+	{
+		table:  "portal_user",
+		column: "deleted_at",
+		ddl:    `ALTER TABLE portal_user ADD COLUMN deleted_at TIMESTAMP NULL`,
+	},
+	{
+		table:  "portal_model_asset",
+		column: "request_kinds_json",
+		ddl:    `ALTER TABLE portal_model_asset ADD COLUMN request_kinds_json TEXT NULL`,
+	},
+	{
+		table:  "portal_model_asset",
+		column: "model_type",
+		ddl:    `ALTER TABLE portal_model_asset ADD COLUMN model_type VARCHAR(64) NULL`,
+	},
+	{
+		table:  "portal_model_asset",
+		column: "input_modalities_json",
+		ddl:    `ALTER TABLE portal_model_asset ADD COLUMN input_modalities_json TEXT NULL`,
+	},
+	{
+		table:  "portal_model_asset",
+		column: "output_modalities_json",
+		ddl:    `ALTER TABLE portal_model_asset ADD COLUMN output_modalities_json TEXT NULL`,
+	},
+	{
+		table:  "portal_model_asset",
+		column: "feature_flags_json",
+		ddl:    `ALTER TABLE portal_model_asset ADD COLUMN feature_flags_json TEXT NULL`,
+	},
+	{
+		table:  "portal_model_binding",
+		column: "limits_json",
+		ddl:    `ALTER TABLE portal_model_binding ADD COLUMN limits_json TEXT NULL`,
+	},
+	{
+		table:  "org_department",
+		column: "admin_consumer_name",
+		ddl:    `ALTER TABLE org_department ADD COLUMN admin_consumer_name VARCHAR(128) NULL`,
+	},
 }
 
 var rawAdjustments = []string{
-	`ALTER TABLE org_department ADD UNIQUE KEY uk_org_department_admin_consumer (admin_consumer_name)`,
+	`ALTER TABLE org_department ADD CONSTRAINT uk_org_department_admin_consumer UNIQUE (admin_consumer_name)`,
+	`CREATE INDEX IF NOT EXISTS idx_org_department_parent ON org_department (parent_department_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_org_department_status ON org_department (status)`,
+	`CREATE INDEX IF NOT EXISTS idx_org_account_department ON org_account_membership (department_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_org_account_parent ON org_account_membership (parent_consumer_name)`,
+	`CREATE INDEX IF NOT EXISTS idx_asset_grant_asset ON asset_grant (asset_type, asset_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_asset_grant_subject_lookup ON asset_grant (subject_type, subject_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_portal_model_asset_display_name ON portal_model_asset (display_name)`,
+	`CREATE INDEX IF NOT EXISTS idx_portal_model_binding_asset ON portal_model_binding (asset_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_portal_model_binding_status ON portal_model_binding (status)`,
+	`CREATE INDEX IF NOT EXISTS idx_portal_model_binding_provider ON portal_model_binding (provider_name)`,
+	`CREATE INDEX IF NOT EXISTS idx_portal_agent_catalog_status ON portal_agent_catalog (status)`,
+	`CREATE INDEX IF NOT EXISTS idx_portal_agent_catalog_display_name ON portal_agent_catalog (display_name)`,
 }
 
 func ApplyToGDB(ctx context.Context, db gdb.DB) error {
+	return ApplyToGDBWithDriver(ctx, db, "postgres")
+}
+
+func ApplyToGDBWithDriver(ctx context.Context, db gdb.DB, driver string) error {
+	if !IsPostgresDriver(driver) {
+		return gerror.New("shared schema only supports PostgreSQL")
+	}
 	for _, ddl := range tableDDLs {
 		if _, err := db.Exec(ctx, ddl); err != nil {
 			return gerror.Wrap(err, "shared schema migration failed")
 		}
 	}
 	for _, item := range columnDDLs {
-		if err := ensureGDBColumn(ctx, db, item.table, item.column, item.sql); err != nil {
+		if err := ensureGDBColumn(ctx, db, driver, item.table, item.column, item.ddl); err != nil {
 			return err
 		}
 	}
@@ -183,13 +244,20 @@ func ApplyToGDB(ctx context.Context, db gdb.DB) error {
 }
 
 func ApplyToSQL(ctx context.Context, db *sql.DB) error {
+	return ApplyToSQLWithDriver(ctx, db, "postgres")
+}
+
+func ApplyToSQLWithDriver(ctx context.Context, db *sql.DB, driver string) error {
+	if !IsPostgresDriver(driver) {
+		return gerror.New("shared schema only supports PostgreSQL")
+	}
 	for _, ddl := range tableDDLs {
 		if _, err := db.ExecContext(ctx, ddl); err != nil {
 			return err
 		}
 	}
 	for _, item := range columnDDLs {
-		if err := ensureSQLColumn(ctx, db, item.table, item.column, item.sql); err != nil {
+		if err := ensureSQLColumn(ctx, db, driver, item.table, item.column, item.ddl); err != nil {
 			return err
 		}
 	}
@@ -215,13 +283,17 @@ func RequiredTables() []string {
 	}
 }
 
-func ensureGDBColumn(ctx context.Context, db gdb.DB, table, column, ddl string) error {
-	value, err := db.GetValue(ctx, `
-		SELECT COUNT(1)
-		FROM information_schema.COLUMNS
-		WHERE TABLE_SCHEMA = DATABASE()
-		  AND TABLE_NAME = ?
-		  AND COLUMN_NAME = ?`, table, column)
+func IsPostgresDriver(driver string) bool {
+	switch strings.ToLower(strings.TrimSpace(driver)) {
+	case "postgres", "postgresql", "pgx", "pgsql", "pgx-rebind":
+		return true
+	default:
+		return false
+	}
+}
+
+func ensureGDBColumn(ctx context.Context, db gdb.DB, driver, table, column, ddl string) error {
+	value, err := db.GetValue(ctx, columnExistenceQuery(driver), table, column)
 	if err != nil {
 		return gerror.Wrap(err, "query shared schema column existence failed")
 	}
@@ -232,14 +304,9 @@ func ensureGDBColumn(ctx context.Context, db gdb.DB, table, column, ddl string) 
 	return gerror.Wrap(err, "apply shared schema column migration failed")
 }
 
-func ensureSQLColumn(ctx context.Context, db *sql.DB, table, column, ddl string) error {
+func ensureSQLColumn(ctx context.Context, db *sql.DB, driver, table, column, ddl string) error {
 	var count int
-	if err := db.QueryRowContext(ctx, `
-		SELECT COUNT(1)
-		FROM information_schema.COLUMNS
-		WHERE TABLE_SCHEMA = DATABASE()
-		  AND TABLE_NAME = ?
-		  AND COLUMN_NAME = ?`, table, column).Scan(&count); err != nil {
+	if err := db.QueryRowContext(ctx, rebindSQL(driver, columnExistenceQuery(driver)), table, column).Scan(&count); err != nil {
 		return err
 	}
 	if count > 0 {
@@ -247,4 +314,53 @@ func ensureSQLColumn(ctx context.Context, db *sql.DB, table, column, ddl string)
 	}
 	_, err := db.ExecContext(ctx, ddl)
 	return err
+}
+
+func columnExistenceQuery(driver string) string {
+	if !IsPostgresDriver(driver) {
+		panic("shared schema only supports PostgreSQL")
+	}
+	return `
+		SELECT COUNT(1)
+		FROM information_schema.COLUMNS
+		WHERE TABLE_SCHEMA = current_schema()
+		  AND TABLE_NAME = ?
+		  AND COLUMN_NAME = ?`
+}
+
+func rebindSQL(driver, query string) string {
+	if !IsPostgresDriver(driver) {
+		panic("shared schema only supports PostgreSQL")
+	}
+	var (
+		builder        strings.Builder
+		index          int
+		inSingleQuotes bool
+	)
+	for i := 0; i < len(query); i++ {
+		ch := query[i]
+		if ch == '\'' {
+			if inSingleQuotes && i+1 < len(query) && query[i+1] == '\'' {
+				builder.WriteByte(ch)
+				builder.WriteByte(query[i+1])
+				i++
+				continue
+			}
+			inSingleQuotes = !inSingleQuotes
+			builder.WriteByte(ch)
+			continue
+		}
+		if ch == '?' && !inSingleQuotes {
+			index++
+			builder.WriteByte('$')
+			builder.WriteString(sqlIndex(index))
+			continue
+		}
+		builder.WriteByte(ch)
+	}
+	return builder.String()
+}
+
+func sqlIndex(index int) string {
+	return strconv.Itoa(index)
 }

@@ -1,0 +1,16 @@
+{{- if .Values.backend.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aigateway-portal.backend.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aigateway-portal.labels" . | nindent 4 }}
+    app.kubernetes.io/component: portal
+spec:
+  minAvailable: {{ .Values.backend.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "aigateway-portal.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: portal
+{{- end }}

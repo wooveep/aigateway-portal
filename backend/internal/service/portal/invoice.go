@@ -39,13 +39,13 @@ func (s *Service) UpdateInvoiceProfile(ctx context.Context, consumerName string,
 		INSERT INTO portal_invoice_profile
 		(consumer_name, company_name, tax_no, address, bank_account, receiver, email)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE
-		company_name = VALUES(company_name),
-		tax_no = VALUES(tax_no),
-		address = VALUES(address),
-		bank_account = VALUES(bank_account),
-		receiver = VALUES(receiver),
-		email = VALUES(email)`,
+		`+s.upsertClause([]string{"consumer_name"},
+		s.assignExcluded("company_name"),
+		s.assignExcluded("tax_no"),
+		s.assignExcluded("address"),
+		s.assignExcluded("bank_account"),
+		s.assignExcluded("receiver"),
+		s.assignExcluded("email"))+``,
 		consumerName,
 		strings.TrimSpace(req.CompanyName),
 		strings.TrimSpace(req.TaxNo),

@@ -112,24 +112,25 @@ type ConsumptionRecord struct {
 }
 
 type ModelInfo struct {
-	ID               string            `json:"id"`
-	Name             string            `json:"name"`
-	Vendor           string            `json:"vendor"`
-	Capability       string            `json:"capability"`
-	InputTokenPrice  float64           `json:"inputTokenPrice"`
-	OutputTokenPrice float64           `json:"outputTokenPrice"`
-	Endpoint         string            `json:"endpoint"`
-	RequestURL       string            `json:"requestUrl,omitempty"`
-	InternalEndpoint string            `json:"-"`
-	InternalRouteURL string            `json:"-"`
-	RouteModel       string            `json:"-"`
-	SDK              string            `json:"sdk"`
-	UpdatedAt        string            `json:"updatedAt"`
-	Summary          string            `json:"summary"`
-	Tags             []string          `json:"tags,omitempty"`
-	Capabilities     ModelCapabilities `json:"capabilities,omitempty"`
-	Pricing          ModelPricing      `json:"pricing,omitempty"`
-	Limits           ModelLimits       `json:"limits,omitempty"`
+	ID                          string            `json:"id"`
+	Name                        string            `json:"name"`
+	Vendor                      string            `json:"vendor"`
+	ModelType                   string            `json:"modelType,omitempty"`
+	Capability                  string            `json:"capability"`
+	InputPricePerMillionTokens  float64           `json:"inputPricePerMillionTokens"`
+	OutputPricePerMillionTokens float64           `json:"outputPricePerMillionTokens"`
+	Endpoint                    string            `json:"endpoint"`
+	RequestURL                  string            `json:"requestUrl,omitempty"`
+	InternalEndpoint            string            `json:"-"`
+	InternalRouteURL            string            `json:"-"`
+	RouteModel                  string            `json:"-"`
+	SDK                         string            `json:"sdk"`
+	UpdatedAt                   string            `json:"updatedAt"`
+	Summary                     string            `json:"summary"`
+	Tags                        []string          `json:"tags,omitempty"`
+	Capabilities                ModelCapabilities `json:"capabilities,omitempty"`
+	Pricing                     ModelPricing      `json:"pricing,omitempty"`
+	Limits                      ModelLimits       `json:"limits,omitempty"`
 }
 
 type AgentToolSummary struct {
@@ -190,36 +191,48 @@ type ChatSessionDetail struct {
 }
 
 type ModelCapabilities struct {
-	Modalities   []string `json:"modalities,omitempty"`
-	Features     []string `json:"features,omitempty"`
-	RequestKinds []string `json:"requestKinds,omitempty"`
+	InputModalities  []string `json:"inputModalities,omitempty"`
+	OutputModalities []string `json:"outputModalities,omitempty"`
+	FeatureFlags     []string `json:"featureFlags,omitempty"`
+	Modalities       []string `json:"modalities,omitempty"`
+	Features         []string `json:"features,omitempty"`
+	RequestKinds     []string `json:"requestKinds,omitempty"`
 }
 
 type ModelPricing struct {
-	Currency                                   string  `json:"currency,omitempty"`
-	InputPer1K                                 float64 `json:"inputPer1K,omitempty"`
-	OutputPer1K                                float64 `json:"outputPer1K,omitempty"`
-	InputCostPerToken                          float64 `json:"input_cost_per_token,omitempty"`
-	OutputCostPerToken                         float64 `json:"output_cost_per_token,omitempty"`
-	InputCostPerRequest                        float64 `json:"input_cost_per_request,omitempty"`
-	CacheCreationInputTokenCost                float64 `json:"cache_creation_input_token_cost,omitempty"`
-	CacheCreationInputTokenCostAbove1hr        float64 `json:"cache_creation_input_token_cost_above_1hr,omitempty"`
-	CacheReadInputTokenCost                    float64 `json:"cache_read_input_token_cost,omitempty"`
-	InputCostPerTokenAbove200kTokens           float64 `json:"input_cost_per_token_above_200k_tokens,omitempty"`
-	OutputCostPerTokenAbove200kTokens          float64 `json:"output_cost_per_token_above_200k_tokens,omitempty"`
-	CacheCreationInputTokenCostAbove200kTokens float64 `json:"cache_creation_input_token_cost_above_200k_tokens,omitempty"`
-	CacheReadInputTokenCostAbove200kTokens     float64 `json:"cache_read_input_token_cost_above_200k_tokens,omitempty"`
-	OutputCostPerImage                         float64 `json:"output_cost_per_image,omitempty"`
-	OutputCostPerImageToken                    float64 `json:"output_cost_per_image_token,omitempty"`
-	InputCostPerImage                          float64 `json:"input_cost_per_image,omitempty"`
-	InputCostPerImageToken                     float64 `json:"input_cost_per_image_token,omitempty"`
-	SupportsPromptCaching                      bool    `json:"supports_prompt_caching,omitempty"`
+	Currency                                                   string  `json:"currency,omitempty"`
+	InputCostPerMillionTokens                                  float64 `json:"inputCostPerMillionTokens,omitempty"`
+	OutputCostPerMillionTokens                                 float64 `json:"outputCostPerMillionTokens,omitempty"`
+	PricePerImage                                              float64 `json:"pricePerImage,omitempty"`
+	PricePerSecond                                             float64 `json:"pricePerSecond,omitempty"`
+	PricePerSecond720p                                         float64 `json:"pricePerSecond720p,omitempty"`
+	PricePerSecond1080p                                        float64 `json:"pricePerSecond1080p,omitempty"`
+	PricePer10kChars                                           float64 `json:"pricePer10kChars,omitempty"`
+	InputCostPerRequest                                        float64 `json:"inputCostPerRequest,omitempty"`
+	CacheCreationInputTokenCostPerMillionTokens                float64 `json:"cacheCreationInputTokenCostPerMillionTokens,omitempty"`
+	CacheCreationInputTokenCostAbove1hrPerMillionTokens        float64 `json:"cacheCreationInputTokenCostAbove1hrPerMillionTokens,omitempty"`
+	CacheReadInputTokenCostPerMillionTokens                    float64 `json:"cacheReadInputTokenCostPerMillionTokens,omitempty"`
+	InputCostPerMillionTokensAbove200kTokens                   float64 `json:"inputCostPerMillionTokensAbove200kTokens,omitempty"`
+	OutputCostPerMillionTokensAbove200kTokens                  float64 `json:"outputCostPerMillionTokensAbove200kTokens,omitempty"`
+	CacheCreationInputTokenCostPerMillionTokensAbove200kTokens float64 `json:"cacheCreationInputTokenCostPerMillionTokensAbove200kTokens,omitempty"`
+	CacheReadInputTokenCostPerMillionTokensAbove200kTokens     float64 `json:"cacheReadInputTokenCostPerMillionTokensAbove200kTokens,omitempty"`
+	OutputCostPerImage                                         float64 `json:"outputCostPerImage,omitempty"`
+	OutputImageTokenCostPerMillionTokens                       float64 `json:"outputImageTokenCostPerMillionTokens,omitempty"`
+	InputCostPerImage                                          float64 `json:"inputCostPerImage,omitempty"`
+	InputImageTokenCostPerMillionTokens                        float64 `json:"inputImageTokenCostPerMillionTokens,omitempty"`
+	SupportsPromptCaching                                      bool    `json:"supportsPromptCaching,omitempty"`
 }
 
 type ModelLimits struct {
-	RPM           int64 `json:"rpm,omitempty"`
-	TPM           int64 `json:"tpm,omitempty"`
-	ContextWindow int64 `json:"contextWindow,omitempty"`
+	MaxInputTokens                 int64 `json:"maxInputTokens,omitempty"`
+	MaxOutputTokens                int64 `json:"maxOutputTokens,omitempty"`
+	ContextWindowTokens            int64 `json:"contextWindowTokens,omitempty"`
+	MaxReasoningTokens             int64 `json:"maxReasoningTokens,omitempty"`
+	MaxInputTokensInReasoningMode  int64 `json:"maxInputTokensInReasoningMode,omitempty"`
+	MaxOutputTokensInReasoningMode int64 `json:"maxOutputTokensInReasoningMode,omitempty"`
+	RPM                            int64 `json:"rpm,omitempty"`
+	TPM                            int64 `json:"tpm,omitempty"`
+	ContextWindow                  int64 `json:"contextWindow,omitempty"`
 }
 
 type APIKeyRecord struct {

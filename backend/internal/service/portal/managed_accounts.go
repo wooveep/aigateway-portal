@@ -108,7 +108,7 @@ func (s *Service) ListManagedDepartments(ctx context.Context, operatorConsumerNa
 			FROM org_account_membership m
 			JOIN portal_user u ON u.consumer_name = m.consumer_name
 			WHERE department_id IS NOT NULL
-			  AND COALESCE(u.is_deleted, 0) = 0
+			  AND COALESCE(u.is_deleted, FALSE) = FALSE
 			GROUP BY department_id
 		) members ON members.department_id = d.department_id
 		WHERE d.department_id IN (%s)
@@ -277,9 +277,9 @@ func (s *Service) AdjustManagedAccountBalance(ctx context.Context, operatorConsu
 			INSERT INTO billing_wallet
 			(consumer_name, currency, available_micro_yuan, version)
 			VALUES (?, 'CNY', ?, 1)
-			ON DUPLICATE KEY UPDATE
-				available_micro_yuan = available_micro_yuan + VALUES(available_micro_yuan),
-				version = version + 1`,
+			`+s.upsertClause([]string{"consumer_name"},
+			s.upsertAdd("billing_wallet", "available_micro_yuan"),
+			s.upsertAdd("billing_wallet", "version"))+``,
 			target,
 			deltaMicroYuan,
 		); txErr != nil {
@@ -327,7 +327,7 @@ func (s *Service) listAccountSummaries(ctx context.Context, consumerNames []stri
 		FROM portal_user u
 		LEFT JOIN org_account_membership m ON m.consumer_name = u.consumer_name
 		WHERE u.consumer_name IN (%s)
-		  AND COALESCE(u.is_deleted, 0) = 0
+		  AND COALESCE(u.is_deleted, FALSE) = FALSE
 		ORDER BY u.consumer_name ASC`, consumerNames)
 	records, err := s.db.GetAll(ctx, query, args...)
 	if err != nil {

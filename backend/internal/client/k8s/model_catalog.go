@@ -53,24 +53,22 @@ type ProviderCapabilities struct {
 }
 
 type ProviderPricing struct {
-	Currency                                   string
-	InputPer1K                                 float64
-	OutputPer1K                                float64
-	InputCostPerToken                          float64
-	OutputCostPerToken                         float64
-	InputCostPerRequest                        float64
-	CacheCreationInputTokenCost                float64
-	CacheCreationInputTokenCostAbove1hr        float64
-	CacheReadInputTokenCost                    float64
-	InputCostPerTokenAbove200kTokens           float64
-	OutputCostPerTokenAbove200kTokens          float64
-	CacheCreationInputTokenCostAbove200kTokens float64
-	CacheReadInputTokenCostAbove200kTokens     float64
-	OutputCostPerImage                         float64
-	OutputCostPerImageToken                    float64
-	InputCostPerImage                          float64
-	InputCostPerImageToken                     float64
-	SupportsPromptCaching                      bool
+	Currency                                                    string
+	InputCostPerMillionTokens                                  float64
+	OutputCostPerMillionTokens                                 float64
+	InputCostPerRequest                                        float64
+	CacheCreationInputTokenCostPerMillionTokens                float64
+	CacheCreationInputTokenCostAbove1hrPerMillionTokens        float64
+	CacheReadInputTokenCostPerMillionTokens                    float64
+	InputCostPerMillionTokensAbove200kTokens                   float64
+	OutputCostPerMillionTokensAbove200kTokens                  float64
+	CacheCreationInputTokenCostPerMillionTokensAbove200kTokens float64
+	CacheReadInputTokenCostPerMillionTokensAbove200kTokens     float64
+	OutputCostPerImage                                         float64
+	OutputImageTokenCostPerMillionTokens                       float64
+	InputCostPerImage                                          float64
+	InputImageTokenCostPerMillionTokens                        float64
+	SupportsPromptCaching                                      bool
 }
 
 type ProviderLimits struct {
@@ -88,14 +86,14 @@ type ProviderModelMeta struct {
 }
 
 type ProviderModel struct {
-	ID       string
-	Type     string
-	Protocol string
-	Endpoint string
+	ID               string
+	Type             string
+	Protocol         string
+	Endpoint         string
 	InternalEndpoint string
 	InternalRouteURL string
 	RouteModel       string
-	Meta     ProviderModelMeta
+	Meta             ProviderModelMeta
 }
 
 type GatewayIngressRoute struct {
@@ -105,10 +103,10 @@ type GatewayIngressRoute struct {
 }
 
 type providerRouteBinding struct {
-	RouteName      string
-	Path           string
-	InternalPath   string
-	ExactModel     string
+	RouteName    string
+	Path         string
+	InternalPath string
+	ExactModel   string
 }
 
 type Client struct {
@@ -161,7 +159,7 @@ func (c *Client) ListEnabledModels(ctx context.Context) ([]ProviderModel, error)
 	}
 	routeBindings, err := c.listProviderRouteBindings(ctx)
 	if err != nil {
-		routeBindings = map[string]providerRouteBinding{}
+		routeBindings = map[string][]providerRouteBinding{}
 	}
 
 	items := make([]ProviderModel, 0, len(providers))
@@ -171,21 +169,27 @@ func (c *Client) ListEnabledModels(ctx context.Context) ([]ProviderModel, error)
 		if _, ok := registryNames[registryName]; !ok {
 			continue
 		}
-		if binding, ok := routeBindings[registryName]; ok {
+		bindings := routeBindings[registryName]
+		if len(bindings) == 0 {
+			items = append(items, item)
+			continue
+		}
+		for _, binding := range bindings {
+			bound := item
 			if binding.Path != "" {
-				item.Endpoint = buildGatewayEndpoint(binding.Path, item.Protocol, baseEndpoint)
+				bound.Endpoint = buildGatewayEndpoint(binding.Path, bound.Protocol, baseEndpoint)
 			}
 			if binding.InternalPath != "" {
-				item.InternalEndpoint = buildInternalGatewayEndpoint(binding.InternalPath, binding.Path, item.Protocol,
+				bound.InternalEndpoint = buildInternalGatewayEndpoint(binding.InternalPath, binding.Path, bound.Protocol,
 					baseEndpoint)
-				item.InternalRouteURL = binding.InternalPath
+				bound.InternalRouteURL = binding.InternalPath
 			}
 			if binding.ExactModel != "" {
-				item.RouteModel = binding.ExactModel
-				item.ID = binding.ExactModel
+				bound.RouteModel = binding.ExactModel
+				bound.ID = binding.ExactModel
 			}
+			items = append(items, bound)
 		}
-		items = append(items, item)
 	}
 	// Keep stable ordering for frontend rendering and detail lookup.
 	sort.Slice(items, func(i, j int) bool {
@@ -291,10 +295,6 @@ func (c *Client) listProviderConfigs(ctx context.Context) ([]ProviderModel, erro
 		if nestedErr != nil || !found || len(spec) == 0 {
 			continue
 		}
-		disabled, hasDisable, disableErr := unstructured.NestedBool(spec, "defaultConfigDisable")
-		if disableErr == nil && hasDisable && disabled {
-			continue
-		}
 		defaultConfig, found, nestedErr := unstructured.NestedMap(spec, "defaultConfig")
 		if nestedErr != nil || !found || len(defaultConfig) == 0 {
 			continue
@@ -364,14 +364,18 @@ func (c *Client) listRegistryNames(ctx context.Context) (map[string]struct{}, er
 	return result, nil
 }
 
-func (c *Client) listProviderRouteBindings(ctx context.Context) (map[string]providerRouteBinding, error) {
-	result := make(map[string]providerRouteBinding)
+func (c *Client) listProviderRouteBindings(ctx context.Context) (map[string][]providerRouteBinding, error) {
+	grouped := make(map[string]map[string]providerRouteBinding)
+	modelsByIngress, err := c.listRouteModelsFromModelMapper(ctx)
+	if err != nil {
+		modelsByIngress = map[string]string{}
+	}
 	list, err := c.dynamicClient.Resource(ingressGVR).Namespace(c.namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, gerror.Wrap(err, "list gateway ingresses failed")
 	}
 	if list == nil || len(list.Items) == 0 {
-		return result, nil
+		return map[string][]providerRouteBinding{}, nil
 	}
 
 	for _, item := range list.Items {
@@ -383,26 +387,92 @@ func (c *Client) listProviderRouteBindings(ctx context.Context) (map[string]prov
 		ingressName, _, _ := unstructured.NestedString(item.Object, "metadata", "name")
 		routePath := firstIngressPath(item.Object)
 		exactModel := extractExactModelHeader(item.Object)
+		if exactModel == "" {
+			exactModel = strings.TrimSpace(modelsByIngress[strings.TrimSpace(ingressName)])
+		}
 		if routePath == "" && exactModel == "" {
 			continue
 		}
-		binding := result[registryName]
+		routeName := routeBindingName(ingressName)
+		registryBindings := grouped[registryName]
+		if registryBindings == nil {
+			registryBindings = make(map[string]providerRouteBinding)
+		}
+		binding := registryBindings[routeName]
 		if strings.TrimSpace(binding.RouteName) == "" {
-			binding.RouteName = strings.TrimSpace(ingressName)
+			binding.RouteName = routeName
 		}
 		if isInternalAIRoutePath(routePath) {
 			binding.InternalPath = routePath
 		} else if routePath != "" {
 			binding.Path = routePath
 		}
-		if routePath != "" {
-			if exactModel != "" {
-				binding.ExactModel = exactModel
-			}
-		} else if exactModel != "" {
+		if exactModel != "" {
 			binding.ExactModel = exactModel
 		}
-		result[registryName] = binding
+		registryBindings[routeName] = binding
+		grouped[registryName] = registryBindings
+	}
+
+	result := make(map[string][]providerRouteBinding, len(grouped))
+	for registryName, registryBindings := range grouped {
+		items := make([]providerRouteBinding, 0, len(registryBindings))
+		for _, binding := range registryBindings {
+			items = append(items, binding)
+		}
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].RouteName < items[j].RouteName
+		})
+		result[registryName] = items
+	}
+	return result, nil
+}
+
+func (c *Client) listRouteModelsFromModelMapper(ctx context.Context) (map[string]string, error) {
+	selector := "higress.io/resource-definer=higress,higress.io/wasm-plugin-name=model-mapper"
+	list, err := c.dynamicClient.Resource(wasmPluginGVR).Namespace(c.namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: selector,
+	})
+	if err != nil {
+		return nil, gerror.Wrap(err, "list model-mapper wasmplugins failed")
+	}
+	if list == nil || len(list.Items) == 0 {
+		return map[string]string{}, nil
+	}
+
+	result := make(map[string]string)
+	for _, item := range list.Items {
+		matchRules, found, nestedErr := unstructured.NestedSlice(item.Object, "spec", "matchRules")
+		if nestedErr != nil || !found || len(matchRules) == 0 {
+			continue
+		}
+		for _, ruleItem := range matchRules {
+			ruleMap, ok := ruleItem.(map[string]any)
+			if !ok {
+				continue
+			}
+			ingresses := asStringSlice(ruleMap["ingress"])
+			if len(ingresses) == 0 {
+				continue
+			}
+			configMap, ok := ruleMap["config"].(map[string]any)
+			if !ok {
+				continue
+			}
+			modelMapping, ok := configMap["modelMapping"].(map[string]any)
+			if !ok || len(modelMapping) == 0 {
+				continue
+			}
+			modelID := inferMappedModel(modelMapping)
+			if modelID == "" {
+				continue
+			}
+			for _, ingressName := range ingresses {
+				if _, exists := result[ingressName]; !exists {
+					result[ingressName] = modelID
+				}
+			}
+		}
 	}
 	return result, nil
 }
@@ -530,6 +600,30 @@ func extractExactModelHeader(object map[string]any) string {
 	return strings.TrimSpace(exactModel)
 }
 
+func inferMappedModel(modelMapping map[string]any) string {
+	if mapped := strings.TrimSpace(asString(modelMapping["*"])); mapped != "" {
+		return mapped
+	}
+	if len(modelMapping) != 1 {
+		return ""
+	}
+	for key, value := range modelMapping {
+		if mapped := strings.TrimSpace(asString(value)); mapped != "" {
+			return mapped
+		}
+		return strings.TrimSpace(key)
+	}
+	return ""
+}
+
+func routeBindingName(ingressName string) string {
+	name := strings.TrimSpace(ingressName)
+	if strings.HasSuffix(name, "-internal") {
+		return strings.TrimSuffix(name, "-internal")
+	}
+	return name
+}
+
 func ingressTLSHosts(object map[string]any) (map[string]struct{}, bool) {
 	result := make(map[string]struct{})
 	tlsItems, found, err := unstructured.NestedSlice(object, "spec", "tls")
@@ -651,62 +745,37 @@ func parsePortalModelMeta(provider map[string]any) ProviderModelMeta {
 		if currency := asString(pricingMap["currency"]); currency != "" {
 			meta.Pricing.Currency = currency
 		}
-		if v, ok := asFloat64(pricingMap["inputPer1K"]); ok {
-			meta.Pricing.InputPer1K = v
-			if meta.Pricing.InputCostPerToken == 0 {
-				meta.Pricing.InputCostPerToken = v / 1000
-			}
-		}
-		if v, ok := asFloat64(pricingMap["outputPer1K"]); ok {
-			meta.Pricing.OutputPer1K = v
-			if meta.Pricing.OutputCostPerToken == 0 {
-				meta.Pricing.OutputCostPerToken = v / 1000
-			}
-		}
-		if v, ok := asFloat64(pricingMap["input_cost_per_token"]); ok {
-			meta.Pricing.InputCostPerToken = v
-			meta.Pricing.InputPer1K = v * 1000
-		}
-		if v, ok := asFloat64(pricingMap["output_cost_per_token"]); ok {
-			meta.Pricing.OutputCostPerToken = v
-			meta.Pricing.OutputPer1K = v * 1000
-		}
+		meta.Pricing.InputCostPerMillionTokens = readPricingWithLegacyTokenFallback(pricingMap,
+			"inputCostPerMillionTokens", "inputPer1K", "input_cost_per_token")
+		meta.Pricing.OutputCostPerMillionTokens = readPricingWithLegacyTokenFallback(pricingMap,
+			"outputCostPerMillionTokens", "outputPer1K", "output_cost_per_token")
 		if v, ok := asFloat64(pricingMap["input_cost_per_request"]); ok {
 			meta.Pricing.InputCostPerRequest = v
 		}
-		if v, ok := asFloat64(pricingMap["cache_creation_input_token_cost"]); ok {
-			meta.Pricing.CacheCreationInputTokenCost = v
-		}
-		if v, ok := asFloat64(pricingMap["cache_creation_input_token_cost_above_1hr"]); ok {
-			meta.Pricing.CacheCreationInputTokenCostAbove1hr = v
-		}
-		if v, ok := asFloat64(pricingMap["cache_read_input_token_cost"]); ok {
-			meta.Pricing.CacheReadInputTokenCost = v
-		}
-		if v, ok := asFloat64(pricingMap["input_cost_per_token_above_200k_tokens"]); ok {
-			meta.Pricing.InputCostPerTokenAbove200kTokens = v
-		}
-		if v, ok := asFloat64(pricingMap["output_cost_per_token_above_200k_tokens"]); ok {
-			meta.Pricing.OutputCostPerTokenAbove200kTokens = v
-		}
-		if v, ok := asFloat64(pricingMap["cache_creation_input_token_cost_above_200k_tokens"]); ok {
-			meta.Pricing.CacheCreationInputTokenCostAbove200kTokens = v
-		}
-		if v, ok := asFloat64(pricingMap["cache_read_input_token_cost_above_200k_tokens"]); ok {
-			meta.Pricing.CacheReadInputTokenCostAbove200kTokens = v
-		}
+		meta.Pricing.CacheCreationInputTokenCostPerMillionTokens = readPricingWithLegacyTokenFallback(pricingMap,
+			"cacheCreationInputTokenCostPerMillionTokens", "cache_creation_input_token_cost", "cacheCreationInputTokenCost")
+		meta.Pricing.CacheCreationInputTokenCostAbove1hrPerMillionTokens = readPricingWithLegacyTokenFallback(pricingMap,
+			"cacheCreationInputTokenCostAbove1hrPerMillionTokens", "cache_creation_input_token_cost_above_1hr", "cacheCreationInputTokenCostAbove1hr")
+		meta.Pricing.CacheReadInputTokenCostPerMillionTokens = readPricingWithLegacyTokenFallback(pricingMap,
+			"cacheReadInputTokenCostPerMillionTokens", "cache_read_input_token_cost", "cacheReadInputTokenCost")
+		meta.Pricing.InputCostPerMillionTokensAbove200kTokens = readPricingWithLegacyTokenFallback(pricingMap,
+			"inputCostPerMillionTokensAbove200kTokens", "input_cost_per_token_above_200k_tokens", "inputCostPerTokenAbove200kTokens")
+		meta.Pricing.OutputCostPerMillionTokensAbove200kTokens = readPricingWithLegacyTokenFallback(pricingMap,
+			"outputCostPerMillionTokensAbove200kTokens", "output_cost_per_token_above_200k_tokens", "outputCostPerTokenAbove200kTokens")
+		meta.Pricing.CacheCreationInputTokenCostPerMillionTokensAbove200kTokens = readPricingWithLegacyTokenFallback(pricingMap,
+			"cacheCreationInputTokenCostPerMillionTokensAbove200kTokens", "cache_creation_input_token_cost_above_200k_tokens", "cacheCreationInputTokenCostAbove200kTokens")
+		meta.Pricing.CacheReadInputTokenCostPerMillionTokensAbove200kTokens = readPricingWithLegacyTokenFallback(pricingMap,
+			"cacheReadInputTokenCostPerMillionTokensAbove200kTokens", "cache_read_input_token_cost_above_200k_tokens", "cacheReadInputTokenCostAbove200kTokens")
 		if v, ok := asFloat64(pricingMap["output_cost_per_image"]); ok {
 			meta.Pricing.OutputCostPerImage = v
 		}
-		if v, ok := asFloat64(pricingMap["output_cost_per_image_token"]); ok {
-			meta.Pricing.OutputCostPerImageToken = v
-		}
+		meta.Pricing.OutputImageTokenCostPerMillionTokens = readPricingWithLegacyTokenFallback(pricingMap,
+			"outputImageTokenCostPerMillionTokens", "output_cost_per_image_token", "outputCostPerImageToken")
 		if v, ok := asFloat64(pricingMap["input_cost_per_image"]); ok {
 			meta.Pricing.InputCostPerImage = v
 		}
-		if v, ok := asFloat64(pricingMap["input_cost_per_image_token"]); ok {
-			meta.Pricing.InputCostPerImageToken = v
-		}
+		meta.Pricing.InputImageTokenCostPerMillionTokens = readPricingWithLegacyTokenFallback(pricingMap,
+			"inputImageTokenCostPerMillionTokens", "input_cost_per_image_token", "inputCostPerImageToken")
 		if v, ok := pricingMap["supports_prompt_caching"].(bool); ok {
 			meta.Pricing.SupportsPromptCaching = v
 		}
@@ -724,6 +793,23 @@ func parsePortalModelMeta(provider map[string]any) ProviderModelMeta {
 	}
 
 	return meta
+}
+
+func readPricingWithLegacyTokenFallback(pricingMap map[string]any, modernKey string, legacyKeys ...string) float64 {
+	if value, ok := asFloat64(pricingMap[modernKey]); ok {
+		return value
+	}
+	for _, key := range legacyKeys {
+		if value, ok := asFloat64(pricingMap[key]); ok {
+			switch key {
+			case "inputPer1K", "outputPer1K":
+				return value * 1000
+			default:
+				return value * 1_000_000
+			}
+		}
+	}
+	return 0
 }
 
 func asString(v any) string {

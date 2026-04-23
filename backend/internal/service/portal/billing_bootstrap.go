@@ -151,10 +151,6 @@ func validateBillingBackfillSummary(summary billingBackfillSummary) error {
 		mismatches = append(mismatches, fmt.Sprintf("legacy models=%d matched billing models=%d",
 			summary.LegacyModelCount, summary.MatchedBillingModelCount))
 	}
-	if summary.LegacyPricedModelCount != summary.MatchedBillingPriceModelCount {
-		mismatches = append(mismatches, fmt.Sprintf("legacy priced models=%d matched billing priced models=%d",
-			summary.LegacyPricedModelCount, summary.MatchedBillingPriceModelCount))
-	}
 	if summary.LegacyRechargeCount != summary.LedgerRechargeCount {
 		mismatches = append(mismatches, fmt.Sprintf("legacy recharge count=%d ledger recharge count=%d",
 			summary.LegacyRechargeCount, summary.LedgerRechargeCount))
