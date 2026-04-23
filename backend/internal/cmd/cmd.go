@@ -61,6 +61,11 @@ func mainFunc(ctx context.Context, parser *gcmd.Parser) (err error) {
 
 			api.Group("/", func(biz *ghttp.RouterGroup) {
 				biz.Middleware(authMw.Handler)
+				biz.GET("/accounts/managed", ctrl.ManagedAccounts)
+				biz.GET("/departments/managed", ctrl.ManagedDepartments)
+				biz.PATCH("/accounts/:consumerName/profile", ctrl.UpdateManagedAccount)
+				biz.POST("/accounts/:consumerName/balance-adjustments", ctrl.AdjustManagedAccountBalance)
+
 				biz.GET("/billing/overview", ctrl.BillingOverview)
 				biz.GET("/billing/consumptions", ctrl.Consumptions)
 				biz.GET("/billing/recharges", ctrl.Recharges)
@@ -68,6 +73,15 @@ func mainFunc(ctx context.Context, parser *gcmd.Parser) (err error) {
 
 				biz.GET("/models", ctrl.ListModels)
 				biz.GET("/models/:id", ctrl.ModelDetail)
+				biz.GET("/agents", ctrl.ListAgents)
+				biz.GET("/agents/:id", ctrl.AgentDetail)
+
+				biz.GET("/ai-chat/sessions", ctrl.ListChatSessions)
+				biz.POST("/ai-chat/sessions", ctrl.CreateChatSession)
+				biz.PATCH("/ai-chat/sessions/:sessionId", ctrl.UpdateChatSession)
+				biz.GET("/ai-chat/sessions/:sessionId", ctrl.ChatSessionDetail)
+				biz.DELETE("/ai-chat/sessions/:sessionId", ctrl.DeleteChatSession)
+				biz.POST("/ai-chat/sessions/:sessionId/messages/stream", ctrl.StreamChatMessage)
 
 				biz.GET("/open-platform/keys", ctrl.ListAPIKeys)
 				biz.POST("/open-platform/keys", ctrl.CreateAPIKey)
@@ -76,6 +90,8 @@ func mainFunc(ctx context.Context, parser *gcmd.Parser) (err error) {
 				biz.DELETE("/open-platform/keys/:id", ctrl.DeleteAPIKey)
 				biz.GET("/open-platform/stats", ctrl.OpenStats)
 				biz.GET("/open-platform/cost-details", ctrl.CostDetails)
+				biz.GET("/open-platform/request-details", ctrl.RequestDetails)
+				biz.GET("/billing/departments/summary", ctrl.DepartmentBillingSummary)
 
 				biz.GET("/invoices/profile", ctrl.GetInvoiceProfile)
 				biz.PUT("/invoices/profile", ctrl.UpdateInvoiceProfile)

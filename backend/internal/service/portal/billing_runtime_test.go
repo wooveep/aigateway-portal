@@ -12,7 +12,7 @@ import (
 )
 
 func TestBillingUsageEventInsertSQLPlaceholderCount(t *testing.T) {
-	if got, want := strings.Count(billingUsageEventInsertSQL, "?"), 36; got != want {
+	if got, want := strings.Count(billingUsageEventInsertSQL, "?"), 38; got != want {
 		t.Fatalf("billingUsageEventInsertSQL placeholder count = %d, want %d", got, want)
 	}
 }
@@ -33,11 +33,11 @@ func TestBillingUsageEventInsertArgsPreserveEmptyCacheTTL(t *testing.T) {
 		OccurredAt:    time.Now().UTC(),
 	}, "stream-1")
 
-	if got, want := len(args), 36; got != want {
+	if got, want := len(args), 38; got != want {
 		t.Fatalf("billingUsageEventInsertArgs len = %d, want %d", got, want)
 	}
-	if got, ok := args[26].(string); !ok || got != "" {
-		t.Fatalf("billingUsageEventInsertArgs cache_ttl arg = %#v, want empty string", args[26])
+	if got, ok := args[28].(string); !ok || got != "" {
+		t.Fatalf("billingUsageEventInsertArgs cache_ttl arg = %#v, want empty string", args[28])
 	}
 }
 

@@ -11,15 +11,16 @@ const AppTimeZone = "UTC"
 var appLocation = time.UTC
 
 type PortalUserRow struct {
-	ConsumerName string     `orm:"consumer_name"`
-	DisplayName  string     `orm:"display_name"`
-	Email        string     `orm:"email"`
-	Department   string     `orm:"department"`
-	UserLevel    string     `orm:"user_level"`
-	Status       string     `orm:"status"`
-	Source       string     `orm:"source"`
-	PasswordHash string     `orm:"password_hash"`
-	LastLoginAt  *time.Time `orm:"last_login_at"`
+	ConsumerName       string     `orm:"consumer_name"`
+	DisplayName        string     `orm:"display_name"`
+	Email              string     `orm:"email"`
+	DepartmentID       string     `orm:"department_id"`
+	UserLevel          string     `orm:"user_level"`
+	Status             string     `orm:"status"`
+	Source             string     `orm:"source"`
+	ParentConsumerName string     `orm:"parent_consumer_name"`
+	PasswordHash       string     `orm:"password_hash"`
+	LastLoginAt        *time.Time `orm:"last_login_at"`
 }
 
 type APIKeyRow struct {
@@ -43,12 +44,17 @@ type APIKeyRow struct {
 }
 
 type AuthUser struct {
-	ConsumerName string `json:"consumerName"`
-	DisplayName  string `json:"displayName"`
-	Email        string `json:"email"`
-	Department   string `json:"department"`
-	UserLevel    string `json:"userLevel"`
-	Status       string `json:"status"`
+	ConsumerName       string `json:"consumerName"`
+	DisplayName        string `json:"displayName"`
+	Email              string `json:"email"`
+	DepartmentID       string `json:"departmentId"`
+	DepartmentName     string `json:"departmentName"`
+	DepartmentPath     string `json:"departmentPath"`
+	ParentConsumerName string `json:"parentConsumerName"`
+	AdminConsumerName  string `json:"adminConsumerName"`
+	IsDepartmentAdmin  bool   `json:"isDepartmentAdmin"`
+	UserLevel          string `json:"userLevel"`
+	Status             string `json:"status"`
 }
 
 type RegisterResult struct {
@@ -60,6 +66,33 @@ type BillingOverview struct {
 	Balance          string `json:"balance"`
 	TotalRecharge    string `json:"totalRecharge"`
 	TotalConsumption string `json:"totalConsumption"`
+}
+
+type ManagedAccountSummary struct {
+	ConsumerName       string `json:"consumerName"`
+	DisplayName        string `json:"displayName"`
+	Email              string `json:"email"`
+	DepartmentID       string `json:"departmentId"`
+	DepartmentName     string `json:"departmentName"`
+	DepartmentPath     string `json:"departmentPath"`
+	ParentConsumerName string `json:"parentConsumerName"`
+	AdminConsumerName  string `json:"adminConsumerName"`
+	IsDepartmentAdmin  bool   `json:"isDepartmentAdmin"`
+	UserLevel          string `json:"userLevel"`
+	Status             string `json:"status"`
+	Balance            string `json:"balance"`
+	TotalConsumption   string `json:"totalConsumption"`
+	ActiveKeys         int64  `json:"activeKeys"`
+}
+
+type ManagedDepartmentNode struct {
+	DepartmentID       string                  `json:"departmentId"`
+	Name               string                  `json:"name"`
+	DepartmentPath     string                  `json:"departmentPath"`
+	ParentDepartmentID string                  `json:"parentDepartmentId"`
+	AdminConsumerName  string                  `json:"adminConsumerName"`
+	MemberCount        int64                   `json:"memberCount"`
+	Children           []ManagedDepartmentNode `json:"children,omitempty"`
 }
 
 type RechargeRecord struct {
@@ -79,52 +112,127 @@ type ConsumptionRecord struct {
 }
 
 type ModelInfo struct {
-	ID               string            `json:"id"`
-	Name             string            `json:"name"`
-	Vendor           string            `json:"vendor"`
-	Capability       string            `json:"capability"`
-	InputTokenPrice  float64           `json:"inputTokenPrice"`
-	OutputTokenPrice float64           `json:"outputTokenPrice"`
-	Endpoint         string            `json:"endpoint"`
-	SDK              string            `json:"sdk"`
-	UpdatedAt        string            `json:"updatedAt"`
-	Summary          string            `json:"summary"`
-	Tags             []string          `json:"tags,omitempty"`
-	Capabilities     ModelCapabilities `json:"capabilities,omitempty"`
-	Pricing          ModelPricing      `json:"pricing,omitempty"`
-	Limits           ModelLimits       `json:"limits,omitempty"`
+	ID                          string            `json:"id"`
+	Name                        string            `json:"name"`
+	Vendor                      string            `json:"vendor"`
+	ModelType                   string            `json:"modelType,omitempty"`
+	Capability                  string            `json:"capability"`
+	InputPricePerMillionTokens  float64           `json:"inputPricePerMillionTokens"`
+	OutputPricePerMillionTokens float64           `json:"outputPricePerMillionTokens"`
+	Endpoint                    string            `json:"endpoint"`
+	RequestURL                  string            `json:"requestUrl,omitempty"`
+	InternalEndpoint            string            `json:"-"`
+	InternalRouteURL            string            `json:"-"`
+	RouteModel                  string            `json:"-"`
+	SDK                         string            `json:"sdk"`
+	UpdatedAt                   string            `json:"updatedAt"`
+	Summary                     string            `json:"summary"`
+	Tags                        []string          `json:"tags,omitempty"`
+	Capabilities                ModelCapabilities `json:"capabilities,omitempty"`
+	Pricing                     ModelPricing      `json:"pricing,omitempty"`
+	Limits                      ModelLimits       `json:"limits,omitempty"`
+}
+
+type AgentToolSummary struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type AgentInfo struct {
+	ID              string             `json:"id"`
+	CanonicalName   string             `json:"canonicalName"`
+	DisplayName     string             `json:"displayName"`
+	Intro           string             `json:"intro"`
+	Description     string             `json:"description"`
+	IconURL         string             `json:"iconUrl"`
+	Tags            []string           `json:"tags,omitempty"`
+	McpServerName   string             `json:"mcpServerName"`
+	ToolCount       int64              `json:"toolCount"`
+	TransportTypes  []string           `json:"transportTypes,omitempty"`
+	ResourceSummary string             `json:"resourceSummary"`
+	PromptSummary   string             `json:"promptSummary"`
+	HTTPURL         string             `json:"httpUrl"`
+	SSEURL          string             `json:"sseUrl"`
+	Tools           []AgentToolSummary `json:"tools,omitempty"`
+	PublishedAt     string             `json:"publishedAt"`
+	UpdatedAt       string             `json:"updatedAt"`
+}
+
+type ChatSessionSummary struct {
+	SessionID          string `json:"sessionId"`
+	ConsumerName       string `json:"consumerName"`
+	Title              string `json:"title"`
+	DefaultModelID     string `json:"defaultModelId"`
+	DefaultAPIKeyID    string `json:"defaultApiKeyId"`
+	LastMessagePreview string `json:"lastMessagePreview"`
+	LastMessageAt      string `json:"lastMessageAt"`
+	CreatedAt          string `json:"createdAt"`
+}
+
+type ChatMessageRecord struct {
+	MessageID    string `json:"messageId"`
+	SessionID    string `json:"sessionId"`
+	Role         string `json:"role"`
+	Content      string `json:"content"`
+	Status       string `json:"status"`
+	ModelID      string `json:"modelId"`
+	APIKeyID     string `json:"apiKeyId"`
+	RequestID    string `json:"requestId"`
+	TraceID      string `json:"traceId"`
+	HTTPStatus   int    `json:"httpStatus"`
+	ErrorMessage string `json:"errorMessage"`
+	CreatedAt    string `json:"createdAt"`
+	FinishedAt   string `json:"finishedAt"`
+}
+
+type ChatSessionDetail struct {
+	Session  ChatSessionSummary  `json:"session"`
+	Messages []ChatMessageRecord `json:"messages"`
 }
 
 type ModelCapabilities struct {
-	Modalities []string `json:"modalities,omitempty"`
-	Features   []string `json:"features,omitempty"`
+	InputModalities  []string `json:"inputModalities,omitempty"`
+	OutputModalities []string `json:"outputModalities,omitempty"`
+	FeatureFlags     []string `json:"featureFlags,omitempty"`
+	Modalities       []string `json:"modalities,omitempty"`
+	Features         []string `json:"features,omitempty"`
+	RequestKinds     []string `json:"requestKinds,omitempty"`
 }
 
 type ModelPricing struct {
-	Currency                                   string  `json:"currency,omitempty"`
-	InputPer1K                                 float64 `json:"inputPer1K,omitempty"`
-	OutputPer1K                                float64 `json:"outputPer1K,omitempty"`
-	InputCostPerToken                          float64 `json:"input_cost_per_token,omitempty"`
-	OutputCostPerToken                         float64 `json:"output_cost_per_token,omitempty"`
-	InputCostPerRequest                        float64 `json:"input_cost_per_request,omitempty"`
-	CacheCreationInputTokenCost                float64 `json:"cache_creation_input_token_cost,omitempty"`
-	CacheCreationInputTokenCostAbove1hr        float64 `json:"cache_creation_input_token_cost_above_1hr,omitempty"`
-	CacheReadInputTokenCost                    float64 `json:"cache_read_input_token_cost,omitempty"`
-	InputCostPerTokenAbove200kTokens           float64 `json:"input_cost_per_token_above_200k_tokens,omitempty"`
-	OutputCostPerTokenAbove200kTokens          float64 `json:"output_cost_per_token_above_200k_tokens,omitempty"`
-	CacheCreationInputTokenCostAbove200kTokens float64 `json:"cache_creation_input_token_cost_above_200k_tokens,omitempty"`
-	CacheReadInputTokenCostAbove200kTokens     float64 `json:"cache_read_input_token_cost_above_200k_tokens,omitempty"`
-	OutputCostPerImage                         float64 `json:"output_cost_per_image,omitempty"`
-	OutputCostPerImageToken                    float64 `json:"output_cost_per_image_token,omitempty"`
-	InputCostPerImage                          float64 `json:"input_cost_per_image,omitempty"`
-	InputCostPerImageToken                     float64 `json:"input_cost_per_image_token,omitempty"`
-	SupportsPromptCaching                      bool    `json:"supports_prompt_caching,omitempty"`
+	Currency                                                   string  `json:"currency,omitempty"`
+	InputCostPerMillionTokens                                  float64 `json:"inputCostPerMillionTokens,omitempty"`
+	OutputCostPerMillionTokens                                 float64 `json:"outputCostPerMillionTokens,omitempty"`
+	PricePerImage                                              float64 `json:"pricePerImage,omitempty"`
+	PricePerSecond                                             float64 `json:"pricePerSecond,omitempty"`
+	PricePerSecond720p                                         float64 `json:"pricePerSecond720p,omitempty"`
+	PricePerSecond1080p                                        float64 `json:"pricePerSecond1080p,omitempty"`
+	PricePer10kChars                                           float64 `json:"pricePer10kChars,omitempty"`
+	InputCostPerRequest                                        float64 `json:"inputCostPerRequest,omitempty"`
+	CacheCreationInputTokenCostPerMillionTokens                float64 `json:"cacheCreationInputTokenCostPerMillionTokens,omitempty"`
+	CacheCreationInputTokenCostAbove1hrPerMillionTokens        float64 `json:"cacheCreationInputTokenCostAbove1hrPerMillionTokens,omitempty"`
+	CacheReadInputTokenCostPerMillionTokens                    float64 `json:"cacheReadInputTokenCostPerMillionTokens,omitempty"`
+	InputCostPerMillionTokensAbove200kTokens                   float64 `json:"inputCostPerMillionTokensAbove200kTokens,omitempty"`
+	OutputCostPerMillionTokensAbove200kTokens                  float64 `json:"outputCostPerMillionTokensAbove200kTokens,omitempty"`
+	CacheCreationInputTokenCostPerMillionTokensAbove200kTokens float64 `json:"cacheCreationInputTokenCostPerMillionTokensAbove200kTokens,omitempty"`
+	CacheReadInputTokenCostPerMillionTokensAbove200kTokens     float64 `json:"cacheReadInputTokenCostPerMillionTokensAbove200kTokens,omitempty"`
+	OutputCostPerImage                                         float64 `json:"outputCostPerImage,omitempty"`
+	OutputImageTokenCostPerMillionTokens                       float64 `json:"outputImageTokenCostPerMillionTokens,omitempty"`
+	InputCostPerImage                                          float64 `json:"inputCostPerImage,omitempty"`
+	InputImageTokenCostPerMillionTokens                        float64 `json:"inputImageTokenCostPerMillionTokens,omitempty"`
+	SupportsPromptCaching                                      bool    `json:"supportsPromptCaching,omitempty"`
 }
 
 type ModelLimits struct {
-	RPM           int64 `json:"rpm,omitempty"`
-	TPM           int64 `json:"tpm,omitempty"`
-	ContextWindow int64 `json:"contextWindow,omitempty"`
+	MaxInputTokens                 int64 `json:"maxInputTokens,omitempty"`
+	MaxOutputTokens                int64 `json:"maxOutputTokens,omitempty"`
+	ContextWindowTokens            int64 `json:"contextWindowTokens,omitempty"`
+	MaxReasoningTokens             int64 `json:"maxReasoningTokens,omitempty"`
+	MaxInputTokensInReasoningMode  int64 `json:"maxInputTokensInReasoningMode,omitempty"`
+	MaxOutputTokensInReasoningMode int64 `json:"maxOutputTokensInReasoningMode,omitempty"`
+	RPM                            int64 `json:"rpm,omitempty"`
+	TPM                            int64 `json:"tpm,omitempty"`
+	ContextWindow                  int64 `json:"contextWindow,omitempty"`
 }
 
 type APIKeyRecord struct {
@@ -161,6 +269,47 @@ type CostDetailRecord struct {
 	Cost   float64 `json:"cost"`
 }
 
+type RequestDetailRecord struct {
+	EventID                    string `json:"eventId"`
+	RequestID                  string `json:"requestId"`
+	TraceID                    string `json:"traceId"`
+	ConsumerName               string `json:"consumerName"`
+	APIKeyID                   string `json:"apiKeyId"`
+	ModelID                    string `json:"modelId"`
+	PriceVersionID             int64  `json:"priceVersionId"`
+	RouteName                  string `json:"routeName"`
+	RequestKind                string `json:"requestKind"`
+	RequestStatus              string `json:"requestStatus"`
+	UsageStatus                string `json:"usageStatus"`
+	HTTPStatus                 int    `json:"httpStatus"`
+	InputTokens                int64  `json:"inputTokens"`
+	OutputTokens               int64  `json:"outputTokens"`
+	TotalTokens                int64  `json:"totalTokens"`
+	CacheCreationInputTokens   int64  `json:"cacheCreationInputTokens"`
+	CacheCreation5mInputTokens int64  `json:"cacheCreation5mInputTokens"`
+	CacheCreation1hInputTokens int64  `json:"cacheCreation1hInputTokens"`
+	CacheReadInputTokens       int64  `json:"cacheReadInputTokens"`
+	InputImageTokens           int64  `json:"inputImageTokens"`
+	OutputImageTokens          int64  `json:"outputImageTokens"`
+	InputImageCount            int64  `json:"inputImageCount"`
+	OutputImageCount           int64  `json:"outputImageCount"`
+	RequestCount               int64  `json:"requestCount"`
+	CostMicroYuan              int64  `json:"costMicroYuan"`
+	DepartmentID               string `json:"departmentId"`
+	DepartmentPath             string `json:"departmentPath"`
+	OccurredAt                 string `json:"occurredAt"`
+}
+
+type DepartmentBillingSummary struct {
+	DepartmentID    string  `json:"departmentId"`
+	DepartmentName  string  `json:"departmentName"`
+	DepartmentPath  string  `json:"departmentPath"`
+	RequestCount    int64   `json:"requestCount"`
+	TotalTokens     int64   `json:"totalTokens"`
+	TotalCost       float64 `json:"totalCost"`
+	ActiveConsumers int64   `json:"activeConsumers"`
+}
+
 type InvoiceProfile struct {
 	CompanyName string `json:"companyName"`
 	TaxNo       string `json:"taxNo"`
@@ -186,7 +335,6 @@ type RegisterRequest struct {
 	Password    string `json:"password"`
 	DisplayName string `json:"displayName"`
 	Email       string `json:"email"`
-	Department  string `json:"department"`
 }
 
 type LoginRequest struct {
@@ -232,9 +380,62 @@ type CreateRechargeRequest struct {
 	Channel string  `json:"channel"`
 }
 
+type UpdateManagedAccountRequest struct {
+	UserLevel string `json:"userLevel"`
+	Status    string `json:"status"`
+}
+
+type AdjustManagedAccountBalanceRequest struct {
+	Amount float64 `json:"amount"`
+	Reason string  `json:"reason"`
+}
+
 type CreateInvoiceRequest struct {
 	Amount float64 `json:"amount"`
 	Remark string  `json:"remark"`
+}
+
+type CreateChatSessionRequest struct {
+	Title           string `json:"title"`
+	DefaultModelID  string `json:"defaultModelId"`
+	DefaultAPIKeyID string `json:"defaultApiKeyId"`
+}
+
+type UpdateChatSessionRequest struct {
+	Title           string `json:"title"`
+	DefaultModelID  string `json:"defaultModelId"`
+	DefaultAPIKeyID string `json:"defaultApiKeyId"`
+}
+
+type ChatSendMessageRequest struct {
+	Content  string `json:"content"`
+	ModelID  string `json:"modelId"`
+	APIKeyID string `json:"apiKeyId"`
+}
+
+type ChatStreamAck struct {
+	UserMessageID      string `json:"userMessageId"`
+	AssistantMessageID string `json:"assistantMessageId"`
+	SessionID          string `json:"sessionId"`
+}
+
+type ChatStreamDelta struct {
+	AssistantMessageID string `json:"assistantMessageId"`
+	Delta              string `json:"delta"`
+	Text               string `json:"text"`
+}
+
+type ChatStreamDone struct {
+	AssistantMessageID string `json:"assistantMessageId"`
+	RequestID          string `json:"requestId"`
+	TraceID            string `json:"traceId"`
+	HTTPStatus         int    `json:"httpStatus"`
+}
+
+type ChatStreamError struct {
+	AssistantMessageID string `json:"assistantMessageId"`
+	Code               string `json:"code"`
+	Message            string `json:"message"`
 }
 
 type ConsumerUsageStat struct {

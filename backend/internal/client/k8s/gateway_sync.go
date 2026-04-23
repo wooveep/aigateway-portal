@@ -121,6 +121,9 @@ func (c *Client) UpdateKeyAuthConsumers(ctx context.Context, consumers []KeyAuth
 		defaultConfig["in_query"] = true
 		defaultConfig["consumers"] = payload
 		spec["defaultConfig"] = defaultConfig
+		// Keep instance-level auth config enabled so route-level allow rules can
+		// reuse the projected consumers and key extraction settings.
+		spec["defaultConfigDisable"] = false
 		plugin.Object["spec"] = spec
 		if _, err = c.dynamicClient.Resource(wasmPluginGVR).Namespace(c.namespace).Update(
 			ctx, plugin, metav1.UpdateOptions{},

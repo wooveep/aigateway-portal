@@ -1,10 +1,10 @@
 connect mysql failed: master.Ping failed: dial tcp 127.0.0.1:3306: connect: connection refused
 1. connect mysql failed
    1).  higress-portal-backend/internal/service/portal.New
-        /home/cloudyi/code/aigateway-group/aigateway-portal/backend/internal/service/portal/service.go:47
+        /home/cloudyi/code/aigateway-group/aigateway-portal/backend/internal/service/portal/service.go:50
 2. master.Ping failed
    1).  higress-portal-backend/internal/service/portal.New
-        /home/cloudyi/code/aigateway-group/aigateway-portal/backend/internal/service/portal/service.go:46
+        /home/cloudyi/code/aigateway-group/aigateway-portal/backend/internal/service/portal/service.go:49
    2).  higress-portal-backend/internal/cmd.mainFunc
         /home/cloudyi/code/aigateway-group/aigateway-portal/backend/internal/cmd/cmd.go:27
    3).  main.main

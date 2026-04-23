@@ -2,6 +2,7 @@ package portal
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -9,106 +10,102 @@ import (
 	"github.com/gogf/gf/v2/errors/gerror"
 
 	"higress-portal-backend/internal/apperr"
-	clientK8s "higress-portal-backend/internal/client/k8s"
+	"higress-portal-backend/internal/consts"
 	"higress-portal-backend/internal/model"
 )
 
-func (s *Service) ListModels(ctx context.Context) ([]model.ModelInfo, error) {
-	items, err := s.listModelsFromCatalogDB(ctx)
-	if err == nil && len(items) > 0 {
-		return items, nil
-	}
-	records, err := s.modelK8s.ListEnabledModels(ctx)
+type publishedBindingModel struct {
+	BindingID string
+	ModelInfo model.ModelInfo
+}
+
+type discoveredModelEndpoints struct {
+	PublicPath   string
+	InternalPath string
+	RouteModel   string
+}
+
+func (s *Service) ListModels(ctx context.Context, user model.AuthUser) ([]model.ModelInfo, error) {
+	items, err := s.listVisibleModelsFromPublishedBindings(ctx, user)
 	if err != nil {
 		return nil, apperr.New(503, "model catalog unavailable", err.Error())
 	}
-
-	items = make([]model.ModelInfo, 0, len(records))
-	for _, record := range records {
-		items = append(items, toPortalModelInfo(record))
+	resolver := s.newGatewayAddressResolver(ctx)
+	for index := range items {
+		items[index] = s.applyDiscoveredModelEndpoint(ctx, items[index])
+		items[index].RequestURL = resolver.resolveURL(items[index].Endpoint, "/v1/chat/completions", false)
 	}
 	return items, nil
 }
 
-func (s *Service) GetModelDetail(ctx context.Context, id string) (model.ModelInfo, error) {
+func (s *Service) GetModelDetail(ctx context.Context, id string, user model.AuthUser) (model.ModelInfo, error) {
 	targetID := strings.TrimSpace(id)
 	if targetID == "" {
 		return model.ModelInfo{}, apperr.New(404, "model not found")
 	}
 
-	item, err := s.getModelFromCatalogDB(ctx, targetID)
+	item, err := s.getVisibleModelFromPublishedBindings(ctx, targetID, user)
 	if err == nil && strings.TrimSpace(item.ID) != "" {
-		return item, nil
+		item = s.applyDiscoveredModelEndpoint(ctx, item)
+		return s.applyModelRequestURL(ctx, item), nil
 	}
-	records, err := s.modelK8s.ListEnabledModels(ctx)
 	if err != nil {
 		return model.ModelInfo{}, apperr.New(503, "model catalog unavailable", err.Error())
-	}
-	for _, record := range records {
-		if record.ID == targetID {
-			return toPortalModelInfo(record), nil
-		}
 	}
 	return model.ModelInfo{}, apperr.New(404, "model not found")
 }
 
-func toPortalModelInfo(src clientK8s.ProviderModel) model.ModelInfo {
-	capabilities := model.ModelCapabilities{
-		Modalities: src.Meta.Capabilities.Modalities,
-		Features:   src.Meta.Capabilities.Features,
+func (s *Service) applyDiscoveredModelEndpoint(ctx context.Context, item model.ModelInfo) model.ModelInfo {
+	currentEndpoint := strings.TrimSpace(item.Endpoint)
+	if currentEndpoint != "" && currentEndpoint != "-" &&
+		strings.HasPrefix(currentEndpoint, "/") &&
+		strings.TrimSpace(item.InternalEndpoint) != "" {
+		return item
 	}
-	pricing := model.ModelPricing{
-		Currency:                                   billingCurrencyCNY,
-		InputPer1K:                                 src.Meta.Pricing.InputPer1K,
-		OutputPer1K:                                src.Meta.Pricing.OutputPer1K,
-		InputCostPerToken:                          src.Meta.Pricing.InputCostPerToken,
-		OutputCostPerToken:                         src.Meta.Pricing.OutputCostPerToken,
-		InputCostPerRequest:                        src.Meta.Pricing.InputCostPerRequest,
-		CacheCreationInputTokenCost:                src.Meta.Pricing.CacheCreationInputTokenCost,
-		CacheCreationInputTokenCostAbove1hr:        src.Meta.Pricing.CacheCreationInputTokenCostAbove1hr,
-		CacheReadInputTokenCost:                    src.Meta.Pricing.CacheReadInputTokenCost,
-		InputCostPerTokenAbove200kTokens:           src.Meta.Pricing.InputCostPerTokenAbove200kTokens,
-		OutputCostPerTokenAbove200kTokens:          src.Meta.Pricing.OutputCostPerTokenAbove200kTokens,
-		CacheCreationInputTokenCostAbove200kTokens: src.Meta.Pricing.CacheCreationInputTokenCostAbove200kTokens,
-		CacheReadInputTokenCostAbove200kTokens:     src.Meta.Pricing.CacheReadInputTokenCostAbove200kTokens,
-		OutputCostPerImage:                         src.Meta.Pricing.OutputCostPerImage,
-		OutputCostPerImageToken:                    src.Meta.Pricing.OutputCostPerImageToken,
-		InputCostPerImage:                          src.Meta.Pricing.InputCostPerImage,
-		InputCostPerImageToken:                     src.Meta.Pricing.InputCostPerImageToken,
-		SupportsPromptCaching:                      src.Meta.Pricing.SupportsPromptCaching,
+	discovered := s.lookupPublishedModelEndpoint(ctx, item)
+	if discovered.PublicPath == "" && discovered.InternalPath == "" {
+		return item
 	}
-	limits := model.ModelLimits{
-		RPM:           src.Meta.Limits.RPM,
-		TPM:           src.Meta.Limits.TPM,
-		ContextWindow: src.Meta.Limits.ContextWindow,
+	if discovered.PublicPath != "" {
+		item.Endpoint = discovered.PublicPath
 	}
+	if discovered.InternalPath != "" {
+		item.InternalEndpoint = discovered.InternalPath
+		item.InternalRouteURL = discovered.InternalPath
+	}
+	if discovered.RouteModel != "" {
+		item.RouteModel = discovered.RouteModel
+	}
+	return item
+}
 
-	capabilitySummary := strings.Join(append(append([]string{}, capabilities.Modalities...), capabilities.Features...), " / ")
-	if capabilitySummary == "" {
-		capabilitySummary = src.Type
+func (s *Service) lookupPublishedModelEndpoint(ctx context.Context, item model.ModelInfo) discoveredModelEndpoints {
+	if s.modelK8s == nil {
+		return discoveredModelEndpoints{}
 	}
-
-	endpoint := src.Endpoint
-	if strings.TrimSpace(endpoint) == "" {
-		endpoint = "-"
+	models, err := s.modelK8s.ListEnabledModels(ctx)
+	if err != nil {
+		return discoveredModelEndpoints{}
 	}
-
-	return model.ModelInfo{
-		ID:               src.ID,
-		Name:             src.ID,
-		Vendor:           src.Type,
-		Capability:       capabilitySummary,
-		InputTokenPrice:  pricing.InputPer1K,
-		OutputTokenPrice: pricing.OutputPer1K,
-		Endpoint:         endpoint,
-		SDK:              src.Protocol,
-		UpdatedAt:        model.DayText(model.NowInAppLocation()),
-		Summary:          src.Meta.Intro,
-		Tags:             src.Meta.Tags,
-		Capabilities:     capabilities,
-		Pricing:          pricing,
-		Limits:           limits,
+	candidates := []string{
+		strings.TrimSpace(item.ID),
+		strings.TrimSpace(item.Name),
 	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		for _, modelItem := range models {
+			if strings.EqualFold(strings.TrimSpace(modelItem.ID), candidate) {
+				return discoveredModelEndpoints{
+					PublicPath:   strings.TrimSpace(modelItem.Endpoint),
+					InternalPath: strings.TrimSpace(modelItem.InternalEndpoint),
+					RouteModel:   strings.TrimSpace(modelItem.RouteModel),
+				}
+			}
+		}
+	}
+	return discoveredModelEndpoints{}
 }
 
 func (s *Service) GetOpenStats(ctx context.Context, consumerName string) (model.OpenStats, error) {
@@ -249,6 +246,302 @@ func (s *Service) listModelsFromCatalogDB(ctx context.Context) ([]model.ModelInf
 	return items, nil
 }
 
+func (s *Service) listModelsFromPublishedBindings(ctx context.Context) ([]model.ModelInfo, error) {
+	records, err := s.db.GetAll(ctx, `
+		SELECT
+			b.binding_id,
+			b.model_id,
+			a.display_name AS name,
+			b.provider_name AS vendor,
+			a.intro AS summary,
+			a.model_type,
+			a.tags_json,
+			a.input_modalities_json,
+			a.output_modalities_json,
+			a.feature_flags_json,
+			a.modalities_json,
+			a.features_json,
+			a.request_kinds_json,
+			b.pricing_json,
+			b.limits_json,
+			b.rpm,
+			b.tpm,
+			b.context_window,
+			b.endpoint,
+			b.protocol,
+			v.version_id,
+			v.pricing_json AS version_pricing_json,
+			GREATEST(a.updated_at, b.updated_at) AS updated_at
+		FROM portal_model_binding b
+		INNER JOIN portal_model_asset a
+			ON a.asset_id = b.asset_id
+		LEFT JOIN portal_model_binding_price_version v
+			ON v.asset_id = b.asset_id
+		   AND v.binding_id = b.binding_id
+		   AND v.active = TRUE
+		   AND v.effective_to IS NULL
+		WHERE b.status = 'published'
+		ORDER BY a.canonical_name ASC, b.model_id ASC`)
+	if err != nil {
+		return nil, gerror.Wrap(err, "query published model bindings failed")
+	}
+	items := make([]model.ModelInfo, 0, len(records))
+	for _, record := range records {
+		items = append(items, toPortalModelInfoFromPublishedBinding(record))
+	}
+	return items, nil
+}
+
+func (s *Service) getModelFromPublishedBindings(ctx context.Context, id string) (model.ModelInfo, error) {
+	record, err := s.db.GetOne(ctx, `
+		SELECT
+			b.binding_id,
+			b.model_id,
+			a.display_name AS name,
+			b.provider_name AS vendor,
+			a.intro AS summary,
+			a.model_type,
+			a.tags_json,
+			a.input_modalities_json,
+			a.output_modalities_json,
+			a.feature_flags_json,
+			a.modalities_json,
+			a.features_json,
+			a.request_kinds_json,
+			b.pricing_json,
+			b.limits_json,
+			b.rpm,
+			b.tpm,
+			b.context_window,
+			b.endpoint,
+			b.protocol,
+			v.version_id,
+			v.pricing_json AS version_pricing_json,
+			GREATEST(a.updated_at, b.updated_at) AS updated_at
+		FROM portal_model_binding b
+		INNER JOIN portal_model_asset a
+			ON a.asset_id = b.asset_id
+		LEFT JOIN portal_model_binding_price_version v
+			ON v.asset_id = b.asset_id
+		   AND v.binding_id = b.binding_id
+		   AND v.active = TRUE
+		   AND v.effective_to IS NULL
+		WHERE b.status = 'published'
+		  AND b.model_id = ?
+		LIMIT 1`, id)
+	if err != nil {
+		return model.ModelInfo{}, gerror.Wrap(err, "query published model binding detail failed")
+	}
+	if len(record) == 0 {
+		return model.ModelInfo{}, nil
+	}
+	return toPortalModelInfoFromPublishedBinding(record), nil
+}
+
+func (s *Service) listVisibleModelsFromPublishedBindings(ctx context.Context, user model.AuthUser) ([]model.ModelInfo, error) {
+	records, err := s.db.GetAll(ctx, `
+		SELECT
+			b.binding_id,
+			b.model_id,
+			a.display_name AS name,
+			b.provider_name AS vendor,
+			a.intro AS summary,
+			a.model_type,
+			a.tags_json,
+			a.input_modalities_json,
+			a.output_modalities_json,
+			a.feature_flags_json,
+			a.modalities_json,
+			a.features_json,
+			a.request_kinds_json,
+			b.pricing_json,
+			b.limits_json,
+			b.rpm,
+			b.tpm,
+			b.context_window,
+			b.endpoint,
+			b.protocol,
+			v.version_id,
+			v.pricing_json AS version_pricing_json,
+			GREATEST(a.updated_at, b.updated_at) AS updated_at
+		FROM portal_model_binding b
+		INNER JOIN portal_model_asset a
+			ON a.asset_id = b.asset_id
+		LEFT JOIN portal_model_binding_price_version v
+			ON v.asset_id = b.asset_id
+		   AND v.binding_id = b.binding_id
+		   AND v.active = TRUE
+		   AND v.effective_to IS NULL
+		WHERE b.status = 'published'
+		ORDER BY a.canonical_name ASC, b.model_id ASC`)
+	if err != nil {
+		return nil, gerror.Wrap(err, "query visible published model bindings failed")
+	}
+	items := make([]publishedBindingModel, 0, len(records))
+	for _, record := range records {
+		items = append(items, publishedBindingModel{
+			BindingID: strings.TrimSpace(record["binding_id"].String()),
+			ModelInfo: toPortalModelInfoFromPublishedBinding(record),
+		})
+	}
+	visible, err := s.filterVisiblePublishedBindings(ctx, user, items)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]model.ModelInfo, 0, len(visible))
+	for _, item := range visible {
+		result = append(result, item.ModelInfo)
+	}
+	return result, nil
+}
+
+func (s *Service) getVisibleModelFromPublishedBindings(ctx context.Context, id string, user model.AuthUser) (model.ModelInfo, error) {
+	record, err := s.db.GetOne(ctx, `
+		SELECT
+			b.binding_id,
+			b.model_id,
+			a.display_name AS name,
+			b.provider_name AS vendor,
+			a.intro AS summary,
+			a.model_type,
+			a.tags_json,
+			a.input_modalities_json,
+			a.output_modalities_json,
+			a.feature_flags_json,
+			a.modalities_json,
+			a.features_json,
+			a.request_kinds_json,
+			b.pricing_json,
+			b.limits_json,
+			b.rpm,
+			b.tpm,
+			b.context_window,
+			b.endpoint,
+			b.protocol,
+			v.version_id,
+			v.pricing_json AS version_pricing_json,
+			GREATEST(a.updated_at, b.updated_at) AS updated_at
+		FROM portal_model_binding b
+		INNER JOIN portal_model_asset a
+			ON a.asset_id = b.asset_id
+		LEFT JOIN portal_model_binding_price_version v
+			ON v.asset_id = b.asset_id
+		   AND v.binding_id = b.binding_id
+		   AND v.active = TRUE
+		   AND v.effective_to IS NULL
+		WHERE b.status = 'published'
+		  AND b.model_id = ?
+		LIMIT 1`, id)
+	if err != nil {
+		return model.ModelInfo{}, gerror.Wrap(err, "query visible published model binding detail failed")
+	}
+	if len(record) == 0 {
+		return model.ModelInfo{}, nil
+	}
+	visible, filterErr := s.filterVisiblePublishedBindings(ctx, user, []publishedBindingModel{{
+		BindingID: strings.TrimSpace(record["binding_id"].String()),
+		ModelInfo: toPortalModelInfoFromPublishedBinding(record),
+	}})
+	if filterErr != nil {
+		return model.ModelInfo{}, filterErr
+	}
+	if len(visible) == 0 {
+		return model.ModelInfo{}, nil
+	}
+	return visible[0].ModelInfo, nil
+}
+
+func (s *Service) filterVisiblePublishedBindings(ctx context.Context, user model.AuthUser,
+	items []publishedBindingModel,
+) ([]publishedBindingModel, error) {
+	if len(items) == 0 {
+		return []publishedBindingModel{}, nil
+	}
+	grantsByBinding, err := s.loadBindingGrants(ctx, items)
+	if err != nil {
+		return nil, err
+	}
+	ancestorIDs, err := s.listDepartmentAncestorIds(ctx, user.DepartmentID)
+	if err != nil {
+		return nil, err
+	}
+	ancestorSet := make(map[string]struct{}, len(ancestorIDs))
+	for _, item := range ancestorIDs {
+		if item != "" {
+			ancestorSet[item] = struct{}{}
+		}
+	}
+	consumerName := model.NormalizeUsername(user.ConsumerName)
+	result := make([]publishedBindingModel, 0, len(items))
+	for _, item := range items {
+		grants := grantsByBinding[item.BindingID]
+		if len(grants) == 0 {
+			result = append(result, item)
+			continue
+		}
+		visible := false
+		for _, grant := range grants {
+			subjectType := strings.TrimSpace(grant["subject_type"].String())
+			subjectID := strings.TrimSpace(grant["subject_id"].String())
+			if subjectType == "consumer" && subjectID == consumerName {
+				visible = true
+				break
+			}
+			if subjectType == "department" {
+				if _, ok := ancestorSet[subjectID]; ok {
+					visible = true
+					break
+				}
+			}
+			if subjectType == "user_level" && userLevelRank(user.UserLevel) >= userLevelRank(subjectID) {
+				visible = true
+				break
+			}
+		}
+		if visible {
+			result = append(result, item)
+		}
+	}
+	return result, nil
+}
+
+func userLevelRank(level string) int {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case consts.UserLevelUltra:
+		return 4
+	case consts.UserLevelPro:
+		return 3
+	case consts.UserLevelPlus:
+		return 2
+	default:
+		return 1
+	}
+}
+
+func (s *Service) loadBindingGrants(ctx context.Context, items []publishedBindingModel) (map[string]gdb.Result, error) {
+	bindingIDs := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.BindingID != "" {
+			bindingIDs = append(bindingIDs, item.BindingID)
+		}
+	}
+	query, args := buildStringInQuery(`
+		SELECT asset_id, subject_type, subject_id
+		FROM asset_grant
+		WHERE asset_type = 'model_binding'
+		  AND asset_id IN (%s)`, bindingIDs)
+	records, err := s.db.GetAll(ctx, query, args...)
+	if err != nil {
+		return nil, gerror.Wrap(err, "query model binding grants failed")
+	}
+	result := make(map[string]gdb.Result, len(bindingIDs))
+	for _, record := range records {
+		assetID := strings.TrimSpace(record["asset_id"].String())
+		result[assetID] = append(result[assetID], record)
+	}
+	return result, nil
+}
+
 func (s *Service) getModelFromCatalogDB(ctx context.Context, id string) (model.ModelInfo, error) {
 	record, err := s.db.GetOne(ctx, `
 		SELECT
@@ -299,44 +592,125 @@ func toPortalModelInfoFromRecord(record gdb.Record) model.ModelInfo {
 	if name == "" {
 		name = modelID
 	}
-	inputPer1K := microYuanToRMB(record["input_price_per_1k_micro_yuan"].Int64())
-	outputPer1K := microYuanToRMB(record["output_price_per_1k_micro_yuan"].Int64())
-	inputPerToken := inputPer1K / 1000
-	outputPerToken := outputPer1K / 1000
+	pricing := modelPricingFromPriceVersionRecord(record)
 	updatedAt := model.DayText(model.NowInAppLocation())
 	if updatedTime := record["updated_at"].Time(); !updatedTime.IsZero() {
 		updatedAt = model.DayText(updatedTime)
 	}
 	return model.ModelInfo{
-		ID:               modelID,
-		Name:             name,
-		Vendor:           strings.TrimSpace(record["vendor"].String()),
-		Capability:       strings.TrimSpace(record["capability"].String()),
-		InputTokenPrice:  inputPer1K,
-		OutputTokenPrice: outputPer1K,
-		Endpoint:         strings.TrimSpace(record["endpoint"].String()),
-		SDK:              strings.TrimSpace(record["sdk"].String()),
-		UpdatedAt:        updatedAt,
-		Summary:          strings.TrimSpace(record["summary"].String()),
-		Pricing: model.ModelPricing{
-			Currency:                                   billingCurrencyCNY,
-			InputPer1K:                                 inputPer1K,
-			OutputPer1K:                                outputPer1K,
-			InputCostPerToken:                          inputPerToken,
-			OutputCostPerToken:                         outputPerToken,
-			InputCostPerRequest:                        microYuanToRMB(record["input_request_price_micro_yuan"].Int64()),
-			CacheCreationInputTokenCost:                microYuanToRMB(record["cache_creation_input_token_price_per_1k_micro_yuan"].Int64()) / 1000,
-			CacheCreationInputTokenCostAbove1hr:        microYuanToRMB(record["cache_creation_input_token_price_above_1hr_per_1k_micro_yuan"].Int64()) / 1000,
-			CacheReadInputTokenCost:                    microYuanToRMB(record["cache_read_input_token_price_per_1k_micro_yuan"].Int64()) / 1000,
-			InputCostPerTokenAbove200kTokens:           microYuanToRMB(record["input_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
-			OutputCostPerTokenAbove200kTokens:          microYuanToRMB(record["output_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
-			CacheCreationInputTokenCostAbove200kTokens: microYuanToRMB(record["cache_creation_input_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
-			CacheReadInputTokenCostAbove200kTokens:     microYuanToRMB(record["cache_read_input_token_price_above_200k_per_1k_micro_yuan"].Int64()) / 1000,
-			OutputCostPerImage:                         microYuanToRMB(record["output_image_price_micro_yuan"].Int64()),
-			OutputCostPerImageToken:                    microYuanToRMB(record["output_image_token_price_per_1k_micro_yuan"].Int64()) / 1000,
-			InputCostPerImage:                          microYuanToRMB(record["input_image_price_micro_yuan"].Int64()),
-			InputCostPerImageToken:                     microYuanToRMB(record["input_image_token_price_per_1k_micro_yuan"].Int64()) / 1000,
-			SupportsPromptCaching:                      record["supports_prompt_caching"].Int64() > 0,
-		},
+		ID:                          modelID,
+		Name:                        name,
+		Vendor:                      strings.TrimSpace(record["vendor"].String()),
+		Capability:                  strings.TrimSpace(record["capability"].String()),
+		InputPricePerMillionTokens:  pricing.InputCostPerMillionTokens,
+		OutputPricePerMillionTokens: pricing.OutputCostPerMillionTokens,
+		Endpoint:                    strings.TrimSpace(record["endpoint"].String()),
+		SDK:                         strings.TrimSpace(record["sdk"].String()),
+		UpdatedAt:                   updatedAt,
+		Summary:                     strings.TrimSpace(record["summary"].String()),
+		Pricing:                     pricing,
 	}
+}
+
+func toPortalModelInfoFromPublishedBinding(record gdb.Record) model.ModelInfo {
+	modelID := strings.TrimSpace(record["model_id"].String())
+	name := strings.TrimSpace(record["name"].String())
+	if name == "" {
+		name = modelID
+	}
+	modelType := normalizeModelType(record["model_type"].String())
+	capabilities := model.ModelCapabilities{
+		InputModalities:  firstNonEmptyStringSlice(parseStringList(record["input_modalities_json"].String()), parseStringList(record["modalities_json"].String())),
+		OutputModalities: firstNonEmptyStringSlice(parseStringList(record["output_modalities_json"].String()), parseStringList(record["modalities_json"].String())),
+		FeatureFlags:     firstNonEmptyStringSlice(parseStringList(record["feature_flags_json"].String()), parseStringList(record["features_json"].String())),
+		Modalities:       parseStringList(record["modalities_json"].String()),
+		Features:         parseStringList(record["features_json"].String()),
+		RequestKinds:     parseStringList(record["request_kinds_json"].String()),
+	}
+	limits := parseModelLimits(record["limits_json"].String())
+	if limits.RPM == 0 {
+		limits.RPM = record["rpm"].Int64()
+	}
+	if limits.TPM == 0 {
+		limits.TPM = record["tpm"].Int64()
+	}
+	if limits.ContextWindowTokens == 0 {
+		limits.ContextWindowTokens = record["context_window"].Int64()
+	}
+	if limits.ContextWindow == 0 {
+		limits.ContextWindow = limits.ContextWindowTokens
+	}
+	capabilitySummary := buildCapabilitySummary(capabilities)
+	if capabilitySummary == "" {
+		capabilitySummary = strings.TrimSpace(record["vendor"].String())
+	}
+	endpoint := strings.TrimSpace(record["endpoint"].String())
+	if endpoint == "" {
+		endpoint = "-"
+	}
+	sdk := strings.TrimSpace(record["protocol"].String())
+	if sdk == "" {
+		sdk = "openai/v1"
+	}
+	pricing, _, _ := parseModelBindingPricingJSON(firstNonEmpty(record["version_pricing_json"].String(), record["pricing_json"].String()), modelType)
+	updatedAt := model.DayText(model.NowInAppLocation())
+	if updatedTime := record["updated_at"].Time(); !updatedTime.IsZero() {
+		updatedAt = model.DayText(updatedTime)
+	}
+	return model.ModelInfo{
+		ID:                          modelID,
+		Name:                        name,
+		Vendor:                      strings.TrimSpace(record["vendor"].String()),
+		ModelType:                   modelType,
+		Capability:                  capabilitySummary,
+		InputPricePerMillionTokens:  pricing.InputCostPerMillionTokens,
+		OutputPricePerMillionTokens: pricing.OutputCostPerMillionTokens,
+		Endpoint:                    endpoint,
+		SDK:                         sdk,
+		UpdatedAt:                   updatedAt,
+		Summary:                     strings.TrimSpace(record["summary"].String()),
+		Tags:                        parseStringList(record["tags_json"].String()),
+		Capabilities:                capabilities,
+		Limits:                      limits,
+		Pricing:                     pricing,
+	}
+}
+
+func parseStringList(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return []string{}
+	}
+	items := make([]string, 0)
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return []string{}
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		value := strings.TrimSpace(item)
+		if value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func parseModelLimits(raw string) model.ModelLimits {
+	if strings.TrimSpace(raw) == "" {
+		return model.ModelLimits{}
+	}
+	limits := model.ModelLimits{}
+	if err := json.Unmarshal([]byte(raw), &limits); err != nil {
+		return model.ModelLimits{}
+	}
+	return limits
 }

@@ -2,12 +2,7 @@
 {{- $dbUserKey := .Values.database.usernameKey -}}
 {{- $dbPasswordKey := .Values.database.passwordKey -}}
 {{- $dbNameKey := .Values.database.databaseKey -}}
-{{- if .Values.mysql.enabled -}}
-{{- $dbPort = .Values.mysql.service.port -}}
-{{- $dbUserKey = .Values.mysql.auth.usernameKey -}}
-{{- $dbPasswordKey = .Values.mysql.auth.passwordKey -}}
-{{- $dbNameKey = .Values.mysql.auth.databaseKey -}}
-{{- end -}}
+{{- $dbDriver := include "aigateway-portal.db.driver" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -60,27 +55,31 @@ spec:
             {{- end }}
             - name: PORTAL_LISTEN_ADDR
               value: ":{{ include "aigateway-portal.service.port" . }}"
-            - name: PORTAL_MYSQL_HOST
-              value: {{ include "aigateway-portal.mysql.host" . | quote }}
-            - name: PORTAL_MYSQL_PORT
+            - name: PORTAL_DB_DRIVER
+              value: {{ $dbDriver | quote }}
+            - name: PORTAL_DB_HOST
+              value: {{ include "aigateway-portal.db.host" . | quote }}
+            - name: PORTAL_DB_PORT
               value: {{ $dbPort | quote }}
-            - name: PORTAL_MYSQL_USER
+            - name: PORTAL_DB_USER
               valueFrom:
                 secretKeyRef:
                   name: {{ include "aigateway-portal.dbSecretName" . }}
                   key: {{ $dbUserKey }}
-            - name: PORTAL_MYSQL_PASSWORD
+            - name: PORTAL_DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "aigateway-portal.dbSecretName" . }}
                   key: {{ $dbPasswordKey }}
-            - name: PORTAL_MYSQL_DATABASE
+            - name: PORTAL_DB_NAME
               valueFrom:
                 secretKeyRef:
                   name: {{ include "aigateway-portal.dbSecretName" . }}
                   key: {{ $dbNameKey }}
-            - name: PORTAL_MYSQL_PARAMS
-              value: "parseTime=true&charset=utf8mb4&loc=Local"
+            - name: PORTAL_DB_PARAMS
+              value: {{ .Values.database.params | quote }}
+            - name: PORTAL_DB_AUTO_MIGRATE
+              value: {{ .Values.backend.dbAutoMigrate | quote }}
             - name: PORTAL_SESSION_COOKIE_NAME
               valueFrom:
                 secretKeyRef:
@@ -118,6 +117,20 @@ spec:
               value: {{ .Values.backend.shutdownGraceSeconds | quote }}
             - name: PORTAL_DISPLAY_NAME
               value: {{ .Values.backend.displayName | quote }}
+            {{- if .Values.backend.gateway.publicBaseURL }}
+            - name: PORTAL_GATEWAY_PUBLIC_BASE_URL
+              value: {{ .Values.backend.gateway.publicBaseURL | quote }}
+            {{- end }}
+            {{- if .Values.backend.gateway.internalBaseURL }}
+            - name: PORTAL_GATEWAY_INTERNAL_BASE_URL
+              value: {{ .Values.backend.gateway.internalBaseURL | quote }}
+            {{- end }}
+            {{- if .Values.backend.gateway.publicHostFallback }}
+            - name: PORTAL_GATEWAY_PUBLIC_HOST_FALLBACK
+              value: {{ .Values.backend.gateway.publicHostFallback | quote }}
+            {{- end }}
+            - name: PORTAL_GATEWAY_SERVICE_NAME
+              value: {{ default "aigateway-gateway" .Values.backend.gateway.serviceName | quote }}
           ports:
             - name: http
               containerPort: {{ include "aigateway-portal.service.port" . | int }}
@@ -142,6 +155,10 @@ spec:
       {{- end }}
       {{- with .Values.backend.affinity }}
       affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.topologySpreadConstraints }}
+      topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.backend.tolerations }}

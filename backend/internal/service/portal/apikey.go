@@ -50,12 +50,13 @@ func (s *Service) ListAPIKeys(ctx context.Context, consumerName string, includeR
 	return items, nil
 }
 
-func (s *Service) CreateAPIKey(ctx context.Context, user model.AuthUser, req model.CreateAPIKeyRequest) (model.APIKeyRecord, error) {
-	if strings.EqualFold(user.ConsumerName, builtinAdministratorUser) {
+func (s *Service) CreateAPIKey(ctx context.Context, consumerName string, req model.CreateAPIKeyRequest) (model.APIKeyRecord, error) {
+	normalizedConsumer := model.NormalizeUsername(consumerName)
+	if strings.EqualFold(normalizedConsumer, builtinAdministratorUser) {
 		return model.APIKeyRecord{}, apperr.New(403, "administrator api key management is not supported")
 	}
 
-	policy, err := s.normalizeAPIKeyPolicyInput(ctx, user.ConsumerName, req.Name, req.ExpiresAt,
+	policy, err := s.normalizeAPIKeyPolicyInput(ctx, normalizedConsumer, req.Name, req.ExpiresAt,
 		req.LimitTotal, req.Limit5h, req.LimitDaily, req.DailyResetMode, req.DailyResetTime, req.LimitWeekly,
 		req.LimitMonthly)
 	if err != nil {
@@ -73,7 +74,7 @@ func (s *Service) CreateAPIKey(ctx context.Context, user model.AuthUser, req mod
 		 limit_weekly_micro_yuan, limit_monthly_micro_yuan, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		keyID,
-		user.ConsumerName,
+		normalizedConsumer,
 		policy.Name,
 		model.MaskKey(rawKey),
 		sha256Hex(rawKey),
@@ -96,7 +97,7 @@ func (s *Service) CreateAPIKey(ctx context.Context, user model.AuthUser, req mod
 		return model.APIKeyRecord{}, apperr.New(503, "api key created but failed to sync gateway key-auth", err.Error())
 	}
 
-	row, err := s.getAPIKeyRow(ctx, user.ConsumerName, keyID, true)
+	row, err := s.getAPIKeyRow(ctx, normalizedConsumer, keyID, true)
 	if err != nil {
 		return model.APIKeyRecord{}, err
 	}
@@ -106,13 +107,14 @@ func (s *Service) CreateAPIKey(ctx context.Context, user model.AuthUser, req mod
 	return toAPIKeyRecord(*row, true), nil
 }
 
-func (s *Service) UpdateAPIKeyStatus(ctx context.Context, user model.AuthUser, keyID string, status string) (model.APIKeyRecord, error) {
+func (s *Service) UpdateAPIKeyStatus(ctx context.Context, consumerName string, keyID string, status string) (model.APIKeyRecord, error) {
+	normalizedConsumer := model.NormalizeUsername(consumerName)
 	normalizedStatus := strings.ToLower(strings.TrimSpace(status))
 	if normalizedStatus != consts.APIKeyStatusActive && normalizedStatus != consts.APIKeyStatusDisabled {
 		return model.APIKeyRecord{}, apperr.New(400, "status must be active or disabled")
 	}
 
-	row, err := s.getAPIKeyRow(ctx, user.ConsumerName, keyID, false)
+	row, err := s.getAPIKeyRow(ctx, normalizedConsumer, keyID, false)
 	if err != nil {
 		return model.APIKeyRecord{}, err
 	}
@@ -126,7 +128,7 @@ func (s *Service) UpdateAPIKeyStatus(ctx context.Context, user model.AuthUser, k
 		WHERE key_id = ? AND consumer_name = ? AND deleted_at IS NULL`,
 		normalizedStatus,
 		keyID,
-		user.ConsumerName,
+		normalizedConsumer,
 	); err != nil {
 		return model.APIKeyRecord{}, gerror.Wrap(err, "update api key failed")
 	}
@@ -134,7 +136,7 @@ func (s *Service) UpdateAPIKeyStatus(ctx context.Context, user model.AuthUser, k
 		return model.APIKeyRecord{}, apperr.New(503, "api key updated but failed to sync gateway key-auth", err.Error())
 	}
 
-	updated, err := s.getAPIKeyRow(ctx, user.ConsumerName, keyID, false)
+	updated, err := s.getAPIKeyRow(ctx, normalizedConsumer, keyID, false)
 	if err != nil {
 		return model.APIKeyRecord{}, err
 	}
@@ -144,8 +146,10 @@ func (s *Service) UpdateAPIKeyStatus(ctx context.Context, user model.AuthUser, k
 	return toAPIKeyRecord(*updated, false), nil
 }
 
-func (s *Service) UpdateAPIKey(ctx context.Context, user model.AuthUser, keyID string, req model.UpdateAPIKeyRequest) (model.APIKeyRecord, error) {
-	row, err := s.getAPIKeyRow(ctx, user.ConsumerName, keyID, false)
+func (s *Service) UpdateAPIKey(ctx context.Context, consumerName string, keyID string, req model.UpdateAPIKeyRequest) (model.APIKeyRecord, error) {
+	normalizedConsumer := model.NormalizeUsername(consumerName)
+
+	row, err := s.getAPIKeyRow(ctx, normalizedConsumer, keyID, false)
 	if err != nil {
 		return model.APIKeyRecord{}, err
 	}
@@ -153,7 +157,7 @@ func (s *Service) UpdateAPIKey(ctx context.Context, user model.AuthUser, keyID s
 		return model.APIKeyRecord{}, apperr.New(404, "api key not found")
 	}
 
-	policy, err := s.normalizeAPIKeyPolicyInput(ctx, user.ConsumerName, req.Name, req.ExpiresAt,
+	policy, err := s.normalizeAPIKeyPolicyInput(ctx, normalizedConsumer, req.Name, req.ExpiresAt,
 		req.LimitTotal, req.Limit5h, req.LimitDaily, req.DailyResetMode, req.DailyResetTime, req.LimitWeekly,
 		req.LimitMonthly)
 	if err != nil {
@@ -176,7 +180,7 @@ func (s *Service) UpdateAPIKey(ctx context.Context, user model.AuthUser, keyID s
 		policy.LimitWeeklyMicroYuan,
 		policy.LimitMonthlyMicroYuan,
 		keyID,
-		user.ConsumerName,
+		normalizedConsumer,
 	); err != nil {
 		return model.APIKeyRecord{}, gerror.Wrap(err, "update api key failed")
 	}
@@ -184,7 +188,7 @@ func (s *Service) UpdateAPIKey(ctx context.Context, user model.AuthUser, keyID s
 		return model.APIKeyRecord{}, apperr.New(503, "api key updated but failed to sync gateway key-auth", err.Error())
 	}
 
-	updated, err := s.getAPIKeyRow(ctx, user.ConsumerName, keyID, false)
+	updated, err := s.getAPIKeyRow(ctx, normalizedConsumer, keyID, false)
 	if err != nil {
 		return model.APIKeyRecord{}, err
 	}
@@ -194,8 +198,10 @@ func (s *Service) UpdateAPIKey(ctx context.Context, user model.AuthUser, keyID s
 	return toAPIKeyRecord(*updated, false), nil
 }
 
-func (s *Service) DeleteAPIKey(ctx context.Context, user model.AuthUser, keyID string) error {
-	row, err := s.getAPIKeyRow(ctx, user.ConsumerName, keyID, false)
+func (s *Service) DeleteAPIKey(ctx context.Context, consumerName string, keyID string) error {
+	normalizedConsumer := model.NormalizeUsername(consumerName)
+
+	row, err := s.getAPIKeyRow(ctx, normalizedConsumer, keyID, false)
 	if err != nil {
 		return err
 	}
@@ -208,7 +214,7 @@ func (s *Service) DeleteAPIKey(ctx context.Context, user model.AuthUser, keyID s
 		WHERE key_id = ? AND consumer_name = ? AND deleted_at IS NULL`,
 		consts.APIKeyStatusDisabled,
 		keyID,
-		user.ConsumerName,
+		normalizedConsumer,
 	); err != nil {
 		return gerror.Wrap(err, "delete api key failed")
 	}

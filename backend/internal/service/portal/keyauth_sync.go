@@ -52,6 +52,7 @@ func (s *Service) syncKeyAuthConsumers(ctx context.Context) error {
 	rows, err := s.db.GetAll(ctx, `
 		SELECT consumer_name, status
 		FROM portal_user
+		WHERE COALESCE(is_deleted, FALSE) = FALSE
 		ORDER BY consumer_name ASC`)
 	if err != nil {
 		return gerror.Wrap(err, "query portal users failed")

@@ -1,20 +1,29 @@
 import axios from 'axios';
 import type {
+  AgentInfo,
   ApiKeyRecord,
   AuthUser,
   BillingOverview,
   ChangePasswordPayload,
+  ChatSessionDetail,
+  ChatSessionSummary,
   ConsumptionRecord,
   CostDetailRecord,
+  DepartmentBillingSummary,
   InvoiceProfile,
   InvoiceRecord,
+  ManagedAccountSummary,
+  ManagedDepartmentNode,
   ModelInfo,
   OpenStats,
+  RequestDetailRecord,
   RechargeRecord,
 } from './types';
 
+export const apiBaseURL = import.meta.env.VITE_API_BASE || '/api';
+
 const client = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || '/api',
+  baseURL: apiBaseURL,
   timeout: 10000,
   withCredentials: true,
 });
@@ -25,7 +34,6 @@ export async function register(payload: {
   password: string;
   displayName?: string;
   email?: string;
-  department?: string;
 }) {
   const { data } = await client.post<{ user: AuthUser; defaultApiKey: string }>('/auth/register', payload);
   return data;
@@ -51,40 +59,115 @@ export async function changePassword(payload: ChangePasswordPayload) {
   return data;
 }
 
-export async function fetchBillingOverview() {
-  const { data } = await client.get<BillingOverview>('/billing/overview');
+export async function fetchManagedAccounts() {
+  const { data } = await client.get<ManagedAccountSummary[]>('/accounts/managed');
   return data;
 }
 
-export async function fetchConsumptions() {
-  const { data } = await client.get<ConsumptionRecord[]>('/billing/consumptions');
+export async function fetchManagedDepartments() {
+  const { data } = await client.get<ManagedDepartmentNode[]>('/departments/managed');
   return data;
 }
 
-export async function fetchRecharges() {
-  const { data } = await client.get<RechargeRecord[]>('/billing/recharges');
+export async function updateManagedAccount(
+  consumerName: string,
+  payload: {
+    userLevel: string;
+    status: 'active' | 'disabled' | 'pending';
+  },
+) {
+  const { data } = await client.patch<ManagedAccountSummary>(`/accounts/${consumerName}/profile`, payload);
   return data;
 }
 
-export async function createRecharge(payload: { amount: number; channel: string }) {
-  const { data } = await client.post<RechargeRecord>('/billing/recharges', payload);
+export async function adjustManagedAccountBalance(
+  consumerName: string,
+  payload: {
+    amount: number;
+    reason?: string;
+  },
+) {
+  const { data } = await client.post<ManagedAccountSummary>(`/accounts/${consumerName}/balance-adjustments`, payload);
   return data;
 }
 
-export async function fetchModels() {
-  const { data } = await client.get<ModelInfo[]>('/models');
+export async function fetchBillingOverview(consumerName?: string) {
+  const { data } = await client.get<BillingOverview>('/billing/overview', {
+    params: {
+      consumerName,
+    },
+  });
   return data;
 }
 
-export async function fetchModelDetail(id: string) {
-  const { data } = await client.get<ModelInfo>(`/models/${id}`);
+export async function fetchConsumptions(consumerName?: string) {
+  const { data } = await client.get<ConsumptionRecord[]>('/billing/consumptions', {
+    params: {
+      consumerName,
+    },
+  });
   return data;
 }
 
-export async function fetchApiKeys(includeRaw = false) {
+export async function fetchRecharges(consumerName?: string) {
+  const { data } = await client.get<RechargeRecord[]>('/billing/recharges', {
+    params: {
+      consumerName,
+    },
+  });
+  return data;
+}
+
+export async function createRecharge(payload: { amount: number; channel: string }, consumerName?: string) {
+  const { data } = await client.post<RechargeRecord>('/billing/recharges', payload, {
+    params: {
+      consumerName,
+    },
+  });
+  return data;
+}
+
+export async function fetchModels(consumerName?: string) {
+  const { data } = await client.get<ModelInfo[]>('/models', {
+    params: {
+      consumerName,
+    },
+  });
+  return data;
+}
+
+export async function fetchAgents(consumerName?: string) {
+  const { data } = await client.get<AgentInfo[]>('/agents', {
+    params: {
+      consumerName,
+    },
+  });
+  return data;
+}
+
+export async function fetchModelDetail(id: string, consumerName?: string) {
+  const { data } = await client.get<ModelInfo>(`/models/${id}`, {
+    params: {
+      consumerName,
+    },
+  });
+  return data;
+}
+
+export async function fetchAgentDetail(id: string, consumerName?: string) {
+  const { data } = await client.get<AgentInfo>(`/agents/${id}`, {
+    params: {
+      consumerName,
+    },
+  });
+  return data;
+}
+
+export async function fetchApiKeys(includeRaw = false, consumerName?: string) {
   const { data } = await client.get<ApiKeyRecord[]>('/open-platform/keys', {
     params: {
       includeRaw,
+      consumerName,
     },
   });
   return data;
@@ -100,8 +183,12 @@ export async function createApiKey(payload: {
   dailyResetTime?: string;
   limitWeekly?: number;
   limitMonthly?: number;
-}) {
-  const { data } = await client.post<ApiKeyRecord>('/open-platform/keys', payload);
+}, consumerName?: string) {
+  const { data } = await client.post<ApiKeyRecord>('/open-platform/keys', payload, {
+    params: {
+      consumerName,
+    },
+  });
   return data;
 }
 
@@ -118,28 +205,80 @@ export async function updateApiKey(
     limitWeekly?: number;
     limitMonthly?: number;
   },
+  consumerName?: string,
 ) {
-  const { data } = await client.put<ApiKeyRecord>(`/open-platform/keys/${id}`, payload);
+  const { data } = await client.put<ApiKeyRecord>(`/open-platform/keys/${id}`, payload, {
+    params: {
+      consumerName,
+    },
+  });
   return data;
 }
 
-export async function updateApiKeyStatus(id: string, status: 'active' | 'disabled') {
-  const { data } = await client.patch<ApiKeyRecord>(`/open-platform/keys/${id}/status`, { status });
+export async function updateApiKeyStatus(id: string, status: 'active' | 'disabled', consumerName?: string) {
+  const { data } = await client.patch<ApiKeyRecord>(`/open-platform/keys/${id}/status`, { status }, {
+    params: {
+      consumerName,
+    },
+  });
   return data;
 }
 
-export async function removeApiKey(id: string) {
-  const { data } = await client.delete<ApiKeyRecord>(`/open-platform/keys/${id}`);
+export async function removeApiKey(id: string, consumerName?: string) {
+  const { data } = await client.delete<ApiKeyRecord>(`/open-platform/keys/${id}`, {
+    params: {
+      consumerName,
+    },
+  });
   return data;
 }
 
-export async function fetchOpenStats() {
-  const { data } = await client.get<OpenStats>('/open-platform/stats');
+export async function fetchOpenStats(consumerName?: string) {
+  const { data } = await client.get<OpenStats>('/open-platform/stats', {
+    params: {
+      consumerName,
+    },
+  });
   return data;
 }
 
-export async function fetchCostDetails() {
-  const { data } = await client.get<CostDetailRecord[]>('/open-platform/cost-details');
+export async function fetchCostDetails(consumerName?: string) {
+  const { data } = await client.get<CostDetailRecord[]>('/open-platform/cost-details', {
+    params: {
+      consumerName,
+    },
+  });
+  return data;
+}
+
+export async function fetchRequestDetails(params?: {
+  consumerName?: string;
+  apiKeyId?: string;
+  modelId?: string;
+  routeName?: string;
+  requestStatus?: string;
+  usageStatus?: string;
+  startAt?: string;
+  endAt?: string;
+  pageNum?: number;
+  pageSize?: number;
+}) {
+  const { data } = await client.get<RequestDetailRecord[]>('/open-platform/request-details', {
+    params,
+  });
+  return data;
+}
+
+export async function fetchDepartmentBillingSummary(params?: {
+  consumerName?: string;
+  departmentId?: string;
+  includeChildren?: boolean;
+  startDate?: string;
+  endDate?: string;
+}) {
+  const { data } = await client.get<DepartmentBillingSummary[]>('/billing/departments/summary', {
+    params,
+  });
   return data;
 }
 
@@ -160,5 +299,58 @@ export async function fetchInvoiceRecords() {
 
 export async function createInvoice(payload: { amount: number; remark?: string }) {
   const { data } = await client.post<InvoiceRecord>('/invoices/records', payload);
+  return data;
+}
+
+export async function fetchChatSessions(consumerName?: string) {
+  const { data } = await client.get<ChatSessionSummary[]>('/ai-chat/sessions', {
+    params: {
+      consumerName,
+    },
+  });
+  return data;
+}
+
+export async function createChatSession(payload?: {
+  title?: string;
+  defaultModelId?: string;
+  defaultApiKeyId?: string;
+}, consumerName?: string) {
+  const { data } = await client.post<ChatSessionSummary>('/ai-chat/sessions', payload || {}, {
+    params: {
+      consumerName,
+    },
+  });
+  return data;
+}
+
+export async function updateChatSession(sessionId: string, payload: {
+  title?: string;
+  defaultModelId?: string;
+  defaultApiKeyId?: string;
+}, consumerName?: string) {
+  const { data } = await client.patch<ChatSessionSummary>(`/ai-chat/sessions/${sessionId}`, payload, {
+    params: {
+      consumerName,
+    },
+  });
+  return data;
+}
+
+export async function fetchChatSessionDetail(sessionId: string, consumerName?: string) {
+  const { data } = await client.get<ChatSessionDetail>(`/ai-chat/sessions/${sessionId}`, {
+    params: {
+      consumerName,
+    },
+  });
+  return data;
+}
+
+export async function removeChatSession(sessionId: string, consumerName?: string) {
+  const { data } = await client.delete<{ id: string }>(`/ai-chat/sessions/${sessionId}`, {
+    params: {
+      consumerName,
+    },
+  });
   return data;
 }

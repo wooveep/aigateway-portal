@@ -2,6 +2,8 @@ package portal
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -55,12 +57,14 @@ func (s *Service) Register(ctx context.Context, req model.RegisterRequest) (mode
 		ConsumerName: username,
 		DisplayName:  displayName,
 		Email:        strings.TrimSpace(req.Email),
-		Department:   strings.TrimSpace(req.Department),
 		PasswordHash: passwordHash,
 		Status:       consts.UserStatusDisabled,
 		Source:       "portal",
 	}).Insert(); err != nil {
 		return model.RegisterResult{}, gerror.Wrap(err, "create user failed")
+	}
+	if err = s.ensureMembershipForConsumer(ctx, username); err != nil {
+		return model.RegisterResult{}, err
 	}
 
 	return model.RegisterResult{
@@ -68,7 +72,6 @@ func (s *Service) Register(ctx context.Context, req model.RegisterRequest) (mode
 			ConsumerName: username,
 			DisplayName:  displayName,
 			Email:        strings.TrimSpace(req.Email),
-			Department:   strings.TrimSpace(req.Department),
 			UserLevel:    consts.UserLevelNormal,
 			Status:       consts.UserStatusDisabled,
 		},
@@ -86,7 +89,11 @@ func (s *Service) Login(ctx context.Context, req model.LoginRequest) (model.Auth
 	if err != nil {
 		return model.AuthUser{}, err
 	}
-	if user == nil || !comparePassword(user.PasswordHash, req.Password) {
+	if user == nil {
+		return model.AuthUser{}, apperr.New(401, "incorrect username or password")
+	}
+	matched, needsUpgrade := verifyPassword(user.PasswordHash, req.Password)
+	if !matched {
 		return model.AuthUser{}, apperr.New(401, "incorrect username or password")
 	}
 	if isPortalLoginBlockedUser(user.ConsumerName, user.Source) {
@@ -96,19 +103,36 @@ func (s *Service) Login(ctx context.Context, req model.LoginRequest) (model.Auth
 		return model.AuthUser{}, apperr.New(403, "account disabled")
 	}
 
-	if _, err = s.db.Model("portal_user").Ctx(ctx).Where("consumer_name", username).Data(do.PortalUser{
+	updateData := do.PortalUser{
 		LastLoginAt: gtime.Now(),
-	}).Update(); err != nil {
+	}
+	if needsUpgrade {
+		passwordHash, hashErr := hashPassword(req.Password)
+		if hashErr != nil {
+			return model.AuthUser{}, gerror.Wrap(hashErr, "upgrade password hash failed")
+		}
+		updateData.PasswordHash = passwordHash
+	}
+	if _, err = s.db.Model("portal_user").Ctx(ctx).Where("consumer_name", username).Data(updateData).Update(); err != nil {
 		return model.AuthUser{}, gerror.Wrap(err, "update last login failed")
+	}
+	orgContext, err := s.loadUserOrgContext(ctx, user.ConsumerName)
+	if err != nil {
+		return model.AuthUser{}, err
 	}
 
 	return model.AuthUser{
-		ConsumerName: user.ConsumerName,
-		DisplayName:  user.DisplayName,
-		Email:        user.Email,
-		Department:   user.Department,
-		UserLevel:    normalizeUserLevel(user.UserLevel),
-		Status:       user.Status,
+		ConsumerName:       user.ConsumerName,
+		DisplayName:        user.DisplayName,
+		Email:              user.Email,
+		DepartmentID:       orgContext.DepartmentID,
+		DepartmentName:     orgContext.DepartmentName,
+		DepartmentPath:     orgContext.DepartmentPath,
+		ParentConsumerName: orgContext.ParentConsumerName,
+		AdminConsumerName:  orgContext.AdminConsumerName,
+		IsDepartmentAdmin:  orgContext.IsDepartmentAdmin,
+		UserLevel:          normalizeUserLevel(user.UserLevel),
+		Status:             user.Status,
 	}, nil
 }
 
@@ -134,7 +158,7 @@ func (s *Service) ChangePassword(ctx context.Context, consumerName string, req m
 	if user == nil {
 		return apperr.New(404, "user not found")
 	}
-	if !comparePassword(user.PasswordHash, req.OldPassword) {
+	if matched, _ := verifyPassword(user.PasswordHash, req.OldPassword); !matched {
 		return apperr.New(400, "current password is incorrect")
 	}
 
@@ -190,10 +214,10 @@ func (s *Service) ClearSession(ctx context.Context, token string) error {
 
 func (s *Service) AuthenticateSession(ctx context.Context, token string) (model.AuthUser, error) {
 	record, err := s.db.GetOne(ctx, `
-		SELECT u.consumer_name, u.display_name, u.email, u.department, u.user_level, u.status, u.source
+		SELECT u.consumer_name, u.display_name, u.email, u.user_level, u.status, u.source
 		FROM portal_session s
 		JOIN portal_user u ON u.consumer_name = s.consumer_name
-		WHERE s.session_token = ? AND s.expires_at > ?`, token, model.NowInAppLocation())
+		WHERE s.session_token = ? AND s.expires_at > ? AND COALESCE(u.is_deleted, FALSE) = FALSE`, token, model.NowInAppLocation())
 	if err != nil {
 		return model.AuthUser{}, gerror.Wrap(err, "query session failed")
 	}
@@ -204,13 +228,22 @@ func (s *Service) AuthenticateSession(ctx context.Context, token string) (model.
 		return model.AuthUser{}, apperr.New(403, "account is not allowed to login portal")
 	}
 
+	orgContext, err := s.loadUserOrgContext(ctx, record["consumer_name"].String())
+	if err != nil {
+		return model.AuthUser{}, err
+	}
 	user := model.AuthUser{
-		ConsumerName: record["consumer_name"].String(),
-		DisplayName:  record["display_name"].String(),
-		Email:        record["email"].String(),
-		Department:   record["department"].String(),
-		UserLevel:    normalizeUserLevel(record["user_level"].String()),
-		Status:       record["status"].String(),
+		ConsumerName:       record["consumer_name"].String(),
+		DisplayName:        record["display_name"].String(),
+		Email:              record["email"].String(),
+		DepartmentID:       orgContext.DepartmentID,
+		DepartmentName:     orgContext.DepartmentName,
+		DepartmentPath:     orgContext.DepartmentPath,
+		ParentConsumerName: orgContext.ParentConsumerName,
+		AdminConsumerName:  orgContext.AdminConsumerName,
+		IsDepartmentAdmin:  orgContext.IsDepartmentAdmin,
+		UserLevel:          normalizeUserLevel(record["user_level"].String()),
+		Status:             record["status"].String(),
 	}
 	if user.Status != consts.UserStatusActive {
 		return model.AuthUser{}, apperr.New(403, "account disabled")
@@ -235,8 +268,11 @@ func isPortalLoginBlockedUser(consumerName string, source string) bool {
 
 func (s *Service) getUserByName(ctx context.Context, consumerName string) (*model.PortalUserRow, error) {
 	record, err := s.db.GetOne(ctx, `
-		SELECT consumer_name, display_name, email, department, user_level, status, source, password_hash, last_login_at
-		FROM portal_user WHERE consumer_name = ?`, consumerName)
+		SELECT u.consumer_name, u.display_name, u.email, m.department_id, m.parent_consumer_name,
+			u.user_level, u.status, u.source, u.password_hash, u.last_login_at
+		FROM portal_user u
+		LEFT JOIN org_account_membership m ON m.consumer_name = u.consumer_name
+		WHERE u.consumer_name = ? AND COALESCE(u.is_deleted, FALSE) = FALSE`, consumerName)
 	if err != nil {
 		return nil, gerror.Wrap(err, "query user failed")
 	}
@@ -259,7 +295,27 @@ func hashPassword(raw string) (string, error) {
 }
 
 func comparePassword(hash string, raw string) bool {
-	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(raw)) == nil
+	matched, _ := verifyPassword(hash, raw)
+	return matched
+}
+
+func verifyPassword(hash string, raw string) (bool, bool) {
+	trimmedHash := strings.TrimSpace(hash)
+	if trimmedHash == "" || raw == "" {
+		return false, false
+	}
+	if bcrypt.CompareHashAndPassword([]byte(trimmedHash), []byte(raw)) == nil {
+		return true, false
+	}
+	if strings.EqualFold(trimmedHash, legacyPasswordHash(raw)) {
+		return true, true
+	}
+	return false, false
+}
+
+func legacyPasswordHash(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
 }
 
 func normalizeUserLevel(level string) string {

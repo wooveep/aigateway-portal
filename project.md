@@ -117,7 +117,7 @@ resource/
 - 保持原响应字段命名（camelCase）和主要错误语义。
 - Controller 只做参数绑定与响应输出，业务逻辑全部放入 `service`。
 - 对关键写操作（注册、创建/更新 Key、开票）统一事务边界。
-- 数据库配置优先使用 `PORTAL_MYSQL_*`，未设置时回退到 `PORTAL_CORE_DB_*`（兼容 `HIGRESS_PORTAL_DB_*`），便于与 core 共库部署。
+- 数据库配置项目标准使用 `PORTAL_DB_*`（`PORTAL_DB_DRIVER=postgres`）；共享库场景可回退到 `PORTAL_CORE_DB_*`（兼容 `HIGRESS_PORTAL_DB_*`）。
 
 示例映射：
 

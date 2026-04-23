@@ -44,6 +44,21 @@ func TestBuildGatewayEndpoint(t *testing.T) {
 	}
 }
 
+func TestBuildInternalGatewayEndpoint(t *testing.T) {
+	t.Parallel()
+
+	got := buildInternalGatewayEndpoint(
+		"/internal/ai-routes/doubao",
+		"/doubao",
+		"openai",
+		"/doubao/v1/chat/completions",
+	)
+	want := "/internal/ai-routes/doubao/v1/chat/completions"
+	if got != want {
+		t.Fatalf("buildInternalGatewayEndpoint() = %q, want %q", got, want)
+	}
+}
+
 func TestNormalizeDestinationRegistryName(t *testing.T) {
 	t.Parallel()
 
@@ -66,5 +81,41 @@ func TestExtractExactModelHeader(t *testing.T) {
 	got := extractExactModelHeader(object)
 	if got != "doubao-seed-2-0-pro-260215" {
 		t.Fatalf("extractExactModelHeader() = %q, want %q", got, "doubao-seed-2-0-pro-260215")
+	}
+}
+
+func TestInferMappedModel(t *testing.T) {
+	t.Parallel()
+
+	if got := inferMappedModel(map[string]any{"*": "qwen3.6-plus"}); got != "qwen3.6-plus" {
+		t.Fatalf("inferMappedModel() wildcard = %q, want %q", got, "qwen3.6-plus")
+	}
+	if got := inferMappedModel(map[string]any{"qwen": "qwen3.6-plus"}); got != "qwen3.6-plus" {
+		t.Fatalf("inferMappedModel() single entry = %q, want %q", got, "qwen3.6-plus")
+	}
+	if got := inferMappedModel(map[string]any{"qwen": "", "other": "x"}); got != "" {
+		t.Fatalf("inferMappedModel() multi entry = %q, want empty", got)
+	}
+}
+
+func TestRouteBindingName(t *testing.T) {
+	t.Parallel()
+
+	if got := routeBindingName("ai-route-qwen.internal-internal"); got != "ai-route-qwen.internal" {
+		t.Fatalf("routeBindingName() = %q, want %q", got, "ai-route-qwen.internal")
+	}
+	if got := routeBindingName("ai-route-qwen.internal"); got != "ai-route-qwen.internal" {
+		t.Fatalf("routeBindingName() public = %q, want %q", got, "ai-route-qwen.internal")
+	}
+}
+
+func TestIsInternalAIRoutePath(t *testing.T) {
+	t.Parallel()
+
+	if !isInternalAIRoutePath("/internal/ai-routes/ai-route-doubao.internal") {
+		t.Fatalf("expected internal ai route path to be detected")
+	}
+	if isInternalAIRoutePath("/doubao") {
+		t.Fatalf("expected public route path not to be treated as internal")
 	}
 }

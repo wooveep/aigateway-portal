@@ -1,6 +1,8 @@
 package portal
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -130,7 +132,12 @@ func (c *Controller) ChangePassword(r *ghttp.Request) {
 
 func (c *Controller) BillingOverview(r *ghttp.Request) {
 	user := authUserFromRequest(r)
-	resp, err := c.svc.GetBillingOverview(r.Context(), user.ConsumerName)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	resp, err := c.svc.GetBillingOverview(r.Context(), targetConsumer)
 	if err != nil {
 		httpx.WriteError(r, err)
 		return
@@ -140,7 +147,12 @@ func (c *Controller) BillingOverview(r *ghttp.Request) {
 
 func (c *Controller) Consumptions(r *ghttp.Request) {
 	user := authUserFromRequest(r)
-	resp, err := c.svc.ListConsumptions(r.Context(), user.ConsumerName)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	resp, err := c.svc.ListConsumptions(r.Context(), targetConsumer)
 	if err != nil {
 		httpx.WriteError(r, err)
 		return
@@ -150,7 +162,12 @@ func (c *Controller) Consumptions(r *ghttp.Request) {
 
 func (c *Controller) Recharges(r *ghttp.Request) {
 	user := authUserFromRequest(r)
-	resp, err := c.svc.ListRecharges(r.Context(), user.ConsumerName)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	resp, err := c.svc.ListRecharges(r.Context(), targetConsumer)
 	if err != nil {
 		httpx.WriteError(r, err)
 		return
@@ -160,12 +177,17 @@ func (c *Controller) Recharges(r *ghttp.Request) {
 
 func (c *Controller) CreateRecharge(r *ghttp.Request) {
 	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
 	var req model.CreateRechargeRequest
 	if err := r.Parse(&req); err != nil {
 		httpx.WriteJSON(r, http.StatusBadRequest, g.Map{"message": "invalid request body"})
 		return
 	}
-	resp, err := c.svc.CreateRecharge(r.Context(), user.ConsumerName, req)
+	resp, err := c.svc.CreateRecharge(r.Context(), targetConsumer, req)
 	if err != nil {
 		httpx.WriteError(r, err)
 		return
@@ -173,8 +195,71 @@ func (c *Controller) CreateRecharge(r *ghttp.Request) {
 	httpx.WriteJSON(r, http.StatusCreated, resp)
 }
 
+func (c *Controller) ManagedAccounts(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	resp, err := c.svc.ListManagedAccounts(r.Context(), user.ConsumerName)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, resp)
+}
+
+func (c *Controller) ManagedDepartments(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	resp, err := c.svc.ListManagedDepartments(r.Context(), user.ConsumerName)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, resp)
+}
+
+func (c *Controller) UpdateManagedAccount(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer := r.Get("consumerName").String()
+	var req model.UpdateManagedAccountRequest
+	if err := r.Parse(&req); err != nil {
+		httpx.WriteJSON(r, http.StatusBadRequest, g.Map{"message": "invalid request body"})
+		return
+	}
+	resp, err := c.svc.UpdateManagedAccount(r.Context(), user.ConsumerName, targetConsumer, req)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, resp)
+}
+
+func (c *Controller) AdjustManagedAccountBalance(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer := r.Get("consumerName").String()
+	var req model.AdjustManagedAccountBalanceRequest
+	if err := r.Parse(&req); err != nil {
+		httpx.WriteJSON(r, http.StatusBadRequest, g.Map{"message": "invalid request body"})
+		return
+	}
+	resp, err := c.svc.AdjustManagedAccountBalance(r.Context(), user.ConsumerName, targetConsumer, req)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, resp)
+}
+
 func (c *Controller) ListModels(r *ghttp.Request) {
-	resp, err := c.svc.ListModels(r.Context())
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	scopeUser, err := c.svc.ResolveScopeUser(r.Context(), targetConsumer)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	resp, err := c.svc.ListModels(r.Context(), scopeUser)
 	if err != nil {
 		httpx.WriteError(r, err)
 		return
@@ -183,8 +268,19 @@ func (c *Controller) ListModels(r *ghttp.Request) {
 }
 
 func (c *Controller) ModelDetail(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	scopeUser, err := c.svc.ResolveScopeUser(r.Context(), targetConsumer)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
 	modelID := r.Get("id").String()
-	resp, err := c.svc.GetModelDetail(r.Context(), modelID)
+	resp, err := c.svc.GetModelDetail(r.Context(), modelID, scopeUser)
 	if err != nil {
 		httpx.WriteError(r, err)
 		return
@@ -192,10 +288,172 @@ func (c *Controller) ModelDetail(r *ghttp.Request) {
 	httpx.WriteJSON(r, http.StatusOK, resp)
 }
 
+func (c *Controller) ListAgents(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	scopeUser, err := c.svc.ResolveScopeUser(r.Context(), targetConsumer)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	resp, err := c.svc.ListAgents(r.Context(), scopeUser)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, resp)
+}
+
+func (c *Controller) AgentDetail(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	scopeUser, err := c.svc.ResolveScopeUser(r.Context(), targetConsumer)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	agentID := r.Get("id").String()
+	resp, err := c.svc.GetAgentDetail(r.Context(), agentID, scopeUser)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, resp)
+}
+
+func (c *Controller) ListChatSessions(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	resp, err := c.svc.ListChatSessions(r.Context(), targetConsumer)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, resp)
+}
+
+func (c *Controller) CreateChatSession(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	var req model.CreateChatSessionRequest
+	if err = r.Parse(&req); err != nil {
+		httpx.WriteJSON(r, http.StatusBadRequest, g.Map{"message": "invalid request body"})
+		return
+	}
+	resp, err := c.svc.CreateChatSession(r.Context(), targetConsumer, user.ConsumerName, req)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusCreated, resp)
+}
+
+func (c *Controller) UpdateChatSession(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	sessionID := strings.TrimSpace(r.Get("sessionId").String())
+	var req model.UpdateChatSessionRequest
+	if err = r.Parse(&req); err != nil {
+		httpx.WriteJSON(r, http.StatusBadRequest, g.Map{"message": "invalid request body"})
+		return
+	}
+	resp, err := c.svc.UpdateChatSession(r.Context(), targetConsumer, sessionID, req)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, resp)
+}
+
+func (c *Controller) ChatSessionDetail(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	sessionID := strings.TrimSpace(r.Get("sessionId").String())
+	resp, err := c.svc.GetChatSessionDetail(r.Context(), targetConsumer, sessionID)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, resp)
+}
+
+func (c *Controller) DeleteChatSession(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	sessionID := strings.TrimSpace(r.Get("sessionId").String())
+	if err = c.svc.DeleteChatSession(r.Context(), targetConsumer, sessionID); err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, g.Map{"id": sessionID})
+}
+
+func (c *Controller) StreamChatMessage(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	sessionID := strings.TrimSpace(r.Get("sessionId").String())
+	var req model.ChatSendMessageRequest
+	if err = r.Parse(&req); err != nil {
+		httpx.WriteJSON(r, http.StatusBadRequest, g.Map{"message": "invalid request body"})
+		return
+	}
+
+	r.Response.Header().Set("Content-Type", "text/event-stream")
+	r.Response.Header().Set("Cache-Control", "no-cache")
+	r.Response.Header().Set("Connection", "keep-alive")
+	r.Response.WriteHeader(http.StatusOK)
+	r.Response.Flush()
+
+	emitter := &portalChatStreamEmitter{request: r}
+	if err = c.svc.StreamChatMessage(r.Context(), targetConsumer, sessionID, req, emitter); err != nil && r.Context().Err() == nil {
+		_ = emitter.Emit("error", model.ChatStreamError{
+			Code:    "stream_failed",
+			Message: err.Error(),
+		})
+	}
+}
+
 func (c *Controller) ListAPIKeys(r *ghttp.Request) {
 	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
 	includeRaw := strings.EqualFold(strings.TrimSpace(r.Get("includeRaw").String()), "true")
-	resp, err := c.svc.ListAPIKeys(r.Context(), user.ConsumerName, includeRaw)
+	resp, err := c.svc.ListAPIKeys(r.Context(), targetConsumer, includeRaw)
 	if err != nil {
 		httpx.WriteError(r, err)
 		return
@@ -205,12 +463,17 @@ func (c *Controller) ListAPIKeys(r *ghttp.Request) {
 
 func (c *Controller) CreateAPIKey(r *ghttp.Request) {
 	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
 	var req model.CreateAPIKeyRequest
 	if err := r.Parse(&req); err != nil {
 		httpx.WriteJSON(r, http.StatusBadRequest, g.Map{"message": "invalid request body"})
 		return
 	}
-	resp, err := c.svc.CreateAPIKey(r.Context(), user, req)
+	resp, err := c.svc.CreateAPIKey(r.Context(), targetConsumer, req)
 	if err != nil {
 		httpx.WriteError(r, err)
 		return
@@ -220,13 +483,18 @@ func (c *Controller) CreateAPIKey(r *ghttp.Request) {
 
 func (c *Controller) UpdateAPIKeyStatus(r *ghttp.Request) {
 	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
 	keyID := r.Get("id").String()
 	var req model.UpdateAPIKeyStatusRequest
 	if err := r.Parse(&req); err != nil {
 		httpx.WriteJSON(r, http.StatusBadRequest, g.Map{"message": "invalid request body"})
 		return
 	}
-	resp, err := c.svc.UpdateAPIKeyStatus(r.Context(), user, keyID, strings.TrimSpace(req.Status))
+	resp, err := c.svc.UpdateAPIKeyStatus(r.Context(), targetConsumer, keyID, strings.TrimSpace(req.Status))
 	if err != nil {
 		httpx.WriteError(r, err)
 		return
@@ -236,13 +504,18 @@ func (c *Controller) UpdateAPIKeyStatus(r *ghttp.Request) {
 
 func (c *Controller) UpdateAPIKey(r *ghttp.Request) {
 	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
 	keyID := r.Get("id").String()
 	var req model.UpdateAPIKeyRequest
 	if err := r.Parse(&req); err != nil {
 		httpx.WriteJSON(r, http.StatusBadRequest, g.Map{"message": "invalid request body"})
 		return
 	}
-	resp, err := c.svc.UpdateAPIKey(r.Context(), user, keyID, req)
+	resp, err := c.svc.UpdateAPIKey(r.Context(), targetConsumer, keyID, req)
 	if err != nil {
 		httpx.WriteError(r, err)
 		return
@@ -252,8 +525,13 @@ func (c *Controller) UpdateAPIKey(r *ghttp.Request) {
 
 func (c *Controller) DeleteAPIKey(r *ghttp.Request) {
 	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
 	keyID := r.Get("id").String()
-	if err := c.svc.DeleteAPIKey(r.Context(), user, keyID); err != nil {
+	if err := c.svc.DeleteAPIKey(r.Context(), targetConsumer, keyID); err != nil {
 		httpx.WriteError(r, err)
 		return
 	}
@@ -262,7 +540,12 @@ func (c *Controller) DeleteAPIKey(r *ghttp.Request) {
 
 func (c *Controller) OpenStats(r *ghttp.Request) {
 	user := authUserFromRequest(r)
-	resp, err := c.svc.GetOpenStats(r.Context(), user.ConsumerName)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	resp, err := c.svc.GetOpenStats(r.Context(), targetConsumer)
 	if err != nil {
 		httpx.WriteError(r, err)
 		return
@@ -272,7 +555,60 @@ func (c *Controller) OpenStats(r *ghttp.Request) {
 
 func (c *Controller) CostDetails(r *ghttp.Request) {
 	user := authUserFromRequest(r)
-	resp, err := c.svc.ListCostDetails(r.Context(), user.ConsumerName)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	resp, err := c.svc.ListCostDetails(r.Context(), targetConsumer)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, resp)
+}
+
+func (c *Controller) RequestDetails(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	targetConsumer, err := c.resolveAccessibleConsumer(r, user)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	resp, err := c.svc.ListRequestDetails(
+		r.Context(),
+		targetConsumer,
+		strings.TrimSpace(r.Get("apiKeyId").String()),
+		strings.TrimSpace(r.Get("modelId").String()),
+		strings.TrimSpace(r.Get("routeName").String()),
+		strings.TrimSpace(r.Get("requestStatus").String()),
+		strings.TrimSpace(r.Get("usageStatus").String()),
+		strings.TrimSpace(r.Get("startAt").String()),
+		strings.TrimSpace(r.Get("endAt").String()),
+		r.Get("pageNum").Int(),
+		r.Get("pageSize").Int(),
+	)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusOK, resp)
+}
+
+func (c *Controller) DepartmentBillingSummary(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	includeChildren := true
+	if raw := strings.TrimSpace(r.Get("includeChildren").String()); raw != "" {
+		includeChildren = strings.EqualFold(raw, "true")
+	}
+	resp, err := c.svc.ListDepartmentBillingSummaries(
+		r.Context(),
+		user.ConsumerName,
+		strings.TrimSpace(r.Get("departmentId").String()),
+		includeChildren,
+		strings.TrimSpace(r.Get("startDate").String()),
+		strings.TrimSpace(r.Get("endDate").String()),
+	)
 	if err != nil {
 		httpx.WriteError(r, err)
 		return
@@ -363,4 +699,31 @@ func authUserFromRequest(r *ghttp.Request) model.AuthUser {
 		_ = v.Struct(&user)
 	}
 	return user
+}
+
+func (c *Controller) resolveAccessibleConsumer(r *ghttp.Request, user model.AuthUser) (string, error) {
+	return c.svc.ResolveAccessibleConsumer(r.Context(), user.ConsumerName, strings.TrimSpace(r.Get("consumerName").String()))
+}
+
+type portalChatStreamEmitter struct {
+	request *ghttp.Request
+}
+
+func (e *portalChatStreamEmitter) Context() context.Context {
+	return e.request.Context()
+}
+
+func (e *portalChatStreamEmitter) Emit(event string, payload any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if _, err = e.request.Response.WriteString("event: " + event + "\n"); err != nil {
+		return err
+	}
+	if _, err = e.request.Response.WriteString("data: " + string(body) + "\n\n"); err != nil {
+		return err
+	}
+	e.request.Response.Flush()
+	return nil
 }
