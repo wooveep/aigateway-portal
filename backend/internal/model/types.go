@@ -11,16 +11,15 @@ const AppTimeZone = "UTC"
 var appLocation = time.UTC
 
 type PortalUserRow struct {
-	ConsumerName       string     `orm:"consumer_name"`
-	DisplayName        string     `orm:"display_name"`
-	Email              string     `orm:"email"`
-	DepartmentID       string     `orm:"department_id"`
-	UserLevel          string     `orm:"user_level"`
-	Status             string     `orm:"status"`
-	Source             string     `orm:"source"`
-	ParentConsumerName string     `orm:"parent_consumer_name"`
-	PasswordHash       string     `orm:"password_hash"`
-	LastLoginAt        *time.Time `orm:"last_login_at"`
+	ConsumerName string     `orm:"consumer_name"`
+	DisplayName  string     `orm:"display_name"`
+	Email        string     `orm:"email"`
+	DepartmentID string     `orm:"department_id"`
+	UserLevel    string     `orm:"user_level"`
+	Status       string     `orm:"status"`
+	Source       string     `orm:"source"`
+	PasswordHash string     `orm:"password_hash"`
+	LastLoginAt  *time.Time `orm:"last_login_at"`
 }
 
 type APIKeyRow struct {
@@ -44,22 +43,26 @@ type APIKeyRow struct {
 }
 
 type AuthUser struct {
-	ConsumerName       string `json:"consumerName"`
-	DisplayName        string `json:"displayName"`
-	Email              string `json:"email"`
-	DepartmentID       string `json:"departmentId"`
-	DepartmentName     string `json:"departmentName"`
-	DepartmentPath     string `json:"departmentPath"`
-	ParentConsumerName string `json:"parentConsumerName"`
-	AdminConsumerName  string `json:"adminConsumerName"`
-	IsDepartmentAdmin  bool   `json:"isDepartmentAdmin"`
-	UserLevel          string `json:"userLevel"`
-	Status             string `json:"status"`
+	ConsumerName      string `json:"consumerName"`
+	DisplayName       string `json:"displayName"`
+	Email             string `json:"email"`
+	DepartmentID      string `json:"departmentId"`
+	DepartmentName    string `json:"departmentName"`
+	DepartmentPath    string `json:"departmentPath"`
+	AdminConsumerName string `json:"adminConsumerName"`
+	IsDepartmentAdmin bool   `json:"isDepartmentAdmin"`
+	UserLevel         string `json:"userLevel"`
+	Status            string `json:"status"`
 }
 
 type RegisterResult struct {
 	User          AuthUser `json:"user"`
 	DefaultAPIKey string   `json:"defaultApiKey"`
+}
+
+type PublicSSOConfig struct {
+	Enabled     bool   `json:"enabled"`
+	DisplayName string `json:"displayName"`
 }
 
 type BillingOverview struct {
@@ -69,20 +72,19 @@ type BillingOverview struct {
 }
 
 type ManagedAccountSummary struct {
-	ConsumerName       string `json:"consumerName"`
-	DisplayName        string `json:"displayName"`
-	Email              string `json:"email"`
-	DepartmentID       string `json:"departmentId"`
-	DepartmentName     string `json:"departmentName"`
-	DepartmentPath     string `json:"departmentPath"`
-	ParentConsumerName string `json:"parentConsumerName"`
-	AdminConsumerName  string `json:"adminConsumerName"`
-	IsDepartmentAdmin  bool   `json:"isDepartmentAdmin"`
-	UserLevel          string `json:"userLevel"`
-	Status             string `json:"status"`
-	Balance            string `json:"balance"`
-	TotalConsumption   string `json:"totalConsumption"`
-	ActiveKeys         int64  `json:"activeKeys"`
+	ConsumerName      string `json:"consumerName"`
+	DisplayName       string `json:"displayName"`
+	Email             string `json:"email"`
+	DepartmentID      string `json:"departmentId"`
+	DepartmentName    string `json:"departmentName"`
+	DepartmentPath    string `json:"departmentPath"`
+	AdminConsumerName string `json:"adminConsumerName"`
+	IsDepartmentAdmin bool   `json:"isDepartmentAdmin"`
+	UserLevel         string `json:"userLevel"`
+	Status            string `json:"status"`
+	Balance           string `json:"balance"`
+	TotalConsumption  string `json:"totalConsumption"`
+	ActiveKeys        int64  `json:"activeKeys"`
 }
 
 type ManagedDepartmentNode struct {
@@ -383,6 +385,18 @@ type CreateRechargeRequest struct {
 type UpdateManagedAccountRequest struct {
 	UserLevel string `json:"userLevel"`
 	Status    string `json:"status"`
+}
+
+type CreateManagedAccountRequest struct {
+	ConsumerName string `json:"consumerName"`
+	DisplayName  string `json:"displayName"`
+	Email        string `json:"email"`
+	Password     string `json:"password"`
+}
+
+type CreateManagedAccountResponse struct {
+	Account      ManagedAccountSummary `json:"account"`
+	TempPassword string                `json:"tempPassword,omitempty"`
 }
 
 type AdjustManagedAccountBalanceRequest struct {

@@ -426,7 +426,7 @@ onMounted(async () => {
   try {
     await loadManagedAccounts();
   } catch (error: unknown) {
-    message.error(getErrorMessage(error, '子账号范围加载失败'));
+    message.error(getErrorMessage(error, '部门成员范围加载失败'));
   }
   await loadData();
 });

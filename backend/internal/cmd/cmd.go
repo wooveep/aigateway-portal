@@ -52,6 +52,9 @@ func mainFunc(ctx context.Context, parser *gcmd.Parser) (err error) {
 				auth.POST("/register", ctrl.Register)
 				auth.POST("/login", ctrl.Login)
 				auth.POST("/logout", ctrl.Logout)
+				auth.GET("/sso/config", ctrl.SSOConfig)
+				auth.GET("/sso/authorize", ctrl.SSOAuthorize)
+				auth.GET("/sso/callback", ctrl.SSOCallback)
 				auth.Group("/", func(authed *ghttp.RouterGroup) {
 					authed.Middleware(authMw.Handler)
 					authed.GET("/me", ctrl.Me)
@@ -62,6 +65,7 @@ func mainFunc(ctx context.Context, parser *gcmd.Parser) (err error) {
 			api.Group("/", func(biz *ghttp.RouterGroup) {
 				biz.Middleware(authMw.Handler)
 				biz.GET("/accounts/managed", ctrl.ManagedAccounts)
+				biz.POST("/accounts/managed", ctrl.CreateManagedAccount)
 				biz.GET("/departments/managed", ctrl.ManagedDepartments)
 				biz.PATCH("/accounts/:consumerName/profile", ctrl.UpdateManagedAccount)
 				biz.POST("/accounts/:consumerName/balance-adjustments", ctrl.AdjustManagedAccountBalance)

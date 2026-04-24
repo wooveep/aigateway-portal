@@ -36,7 +36,10 @@
           <div class="portal-section__eyebrow">Members</div>
           <h2 class="portal-section__title">部门成员列表</h2>
         </div>
-        <a-button @click="loadData" :loading="pageLoading">刷新</a-button>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+          <a-button type="primary" @click="openCreateModal">新建成员</a-button>
+          <a-button @click="loadData" :loading="pageLoading">刷新</a-button>
+        </div>
       </div>
 
       <a-empty v-if="!managedAccounts.length && !pageLoading" description="当前部门下暂无可管理成员" />
@@ -78,13 +81,38 @@
 
           <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px;">
             <a-button @click="openProfileModal(record)">账号设置</a-button>
-            <a-button @click="openBalanceModal(record)">调整余额</a-button>
+            <a-button @click="openBalanceModal(record)">转账余额</a-button>
             <a-button @click="goBilling(record.consumerName)">账单</a-button>
             <a-button @click="goOpenPlatform(record.consumerName)">API Key</a-button>
           </div>
         </article>
       </div>
     </section>
+
+    <a-modal
+      v-model:open="showCreateModal"
+      title="新建部门成员"
+      :confirm-loading="submittingCreate"
+      @ok="submitCreate"
+    >
+      <div class="portal-callout" style="margin-bottom: 16px;">
+        新账号会直接加入你当前所在部门。密码留空时，系统会生成临时密码。
+      </div>
+      <a-form layout="vertical">
+        <a-form-item label="账号" required>
+          <a-input v-model:value="createForm.consumerName" />
+        </a-form-item>
+        <a-form-item label="显示名" required>
+          <a-input v-model:value="createForm.displayName" />
+        </a-form-item>
+        <a-form-item label="邮箱">
+          <a-input v-model:value="createForm.email" />
+        </a-form-item>
+        <a-form-item label="初始密码">
+          <a-input-password v-model:value="createForm.password" placeholder="留空则自动生成临时密码" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
 
     <a-modal
       v-model:open="showProfileModal"
@@ -107,22 +135,22 @@
 
     <a-modal
       v-model:open="showBalanceModal"
-      title="调整账号余额"
+      title="成员余额转账"
       :confirm-loading="submittingBalance"
       @ok="submitBalanceAdjustment"
     >
       <div class="portal-callout" style="margin-bottom: 16px;">
-        支持正负金额。输入正数表示增加余额，输入负数表示扣减余额。
+        管理员当前可用余额：¥{{ adminBalance.toFixed(2) }}。输入正数会从管理员余额转给成员，输入负数会从成员余额退回管理员。
       </div>
       <a-form layout="vertical">
         <a-form-item label="账号">
           <a-input :value="currentAccountLabel" disabled />
         </a-form-item>
-        <a-form-item label="调整金额（元）" required>
+        <a-form-item label="转账金额（元）" required>
           <a-input-number v-model:value="balanceForm.amount" :precision="2" style="width: 100%" />
         </a-form-item>
         <a-form-item label="备注">
-          <a-textarea v-model:value="balanceForm.reason" :rows="3" placeholder="例如：父账号补贴、人工扣减、月度激励" />
+          <a-textarea v-model:value="balanceForm.reason" :rows="3" placeholder="例如：部门预算划拨、余额回收、月度激励" />
         </a-form-item>
       </a-form>
     </a-modal>
@@ -130,9 +158,10 @@
 </template>
 
 <script setup lang="ts">
-import { adjustManagedAccountBalance, fetchManagedDepartments, updateManagedAccount } from '../api';
+import { adjustManagedAccountBalance, createManagedAccount, fetchBillingOverview, fetchManagedDepartments, updateManagedAccount } from '../api';
 import { useManagedAccountScope } from '../composables/useManagedAccountScope';
 import type { ManagedAccountSummary, ManagedDepartmentNode } from '../types';
+import { copyTextToClipboard } from '../utils/clipboard';
 import { message } from 'ant-design-vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
@@ -145,11 +174,20 @@ const {
 const managedDepartments = ref<ManagedDepartmentNode[]>([]);
 
 const pageLoading = ref(false);
+const showCreateModal = ref(false);
 const showProfileModal = ref(false);
 const showBalanceModal = ref(false);
+const submittingCreate = ref(false);
 const submittingProfile = ref(false);
 const submittingBalance = ref(false);
 const currentAccount = ref<ManagedAccountSummary | null>(null);
+const adminBalance = ref(0);
+const createForm = reactive({
+  consumerName: '',
+  displayName: '',
+  email: '',
+  password: '',
+});
 const profileForm = reactive({
   userLevel: 'normal',
   status: 'active' as 'active' | 'disabled' | 'pending',
@@ -233,16 +271,26 @@ const statusClass = (value: string) => {
 const loadData = async () => {
   pageLoading.value = true;
   try {
-    const [, departments] = await Promise.all([
+    const [, departments, overview] = await Promise.all([
       loadManagedAccounts(),
       fetchManagedDepartments(),
+      fetchBillingOverview(),
     ]);
     managedDepartments.value = departments;
+    adminBalance.value = Number(overview.balance || 0);
   } catch (error: unknown) {
     message.error(getErrorMessage(error, '部门管理数据加载失败'));
   } finally {
     pageLoading.value = false;
   }
+};
+
+const openCreateModal = () => {
+  createForm.consumerName = '';
+  createForm.displayName = '';
+  createForm.email = '';
+  createForm.password = '';
+  showCreateModal.value = true;
 };
 
 const openProfileModal = (account: ManagedAccountSummary) => {
@@ -279,12 +327,47 @@ const submitProfile = async () => {
   }
 };
 
+const submitCreate = async () => {
+  const consumerName = createForm.consumerName.trim();
+  const displayName = createForm.displayName.trim();
+  if (!consumerName || !displayName) {
+    message.warning('请填写账号和显示名');
+    return;
+  }
+
+  submittingCreate.value = true;
+  try {
+    const response = await createManagedAccount({
+      consumerName,
+      displayName,
+      email: createForm.email.trim() || undefined,
+      password: createForm.password || undefined,
+    });
+    if (response.tempPassword) {
+      try {
+        await copyTextToClipboard(response.tempPassword);
+        message.success(`成员已创建，临时密码已复制：${response.tempPassword}`);
+      } catch {
+        message.success(`成员已创建，临时密码：${response.tempPassword}`);
+      }
+    } else {
+      message.success('成员已创建');
+    }
+    showCreateModal.value = false;
+    await loadData();
+  } catch (error: unknown) {
+    message.error(getErrorMessage(error, '创建成员失败'));
+  } finally {
+    submittingCreate.value = false;
+  }
+};
+
 const submitBalanceAdjustment = async () => {
   if (!currentAccount.value) {
     return;
   }
   if (!balanceForm.amount) {
-    message.warning('请输入非 0 的调整金额');
+    message.warning('请输入非 0 的转账金额');
     return;
   }
   submittingBalance.value = true;
@@ -293,11 +376,11 @@ const submitBalanceAdjustment = async () => {
       amount: balanceForm.amount,
       reason: balanceForm.reason.trim(),
     });
-    message.success('余额调整成功');
+    message.success('余额转账成功');
     showBalanceModal.value = false;
     await loadData();
   } catch (error: unknown) {
-    message.error(getErrorMessage(error, '余额调整失败'));
+    message.error(getErrorMessage(error, '余额转账失败'));
   } finally {
     submittingBalance.value = false;
   }

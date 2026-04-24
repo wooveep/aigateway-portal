@@ -506,11 +506,16 @@ func buildRegistryName(providerID string) string {
 }
 
 func normalizeProtocol(v string) string {
-	v = strings.TrimSpace(v)
-	if v == "" {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "auto", "openai", "openai/v1", "openai/v1/chatcompletions", "openai/v1/chat/completions", "responses", "openai/v1/responses":
 		return "openai/v1"
+	case "anthropic", "claude", "anthropic/v1/messages", "/v1/messages":
+		return "anthropic/v1/messages"
+	case "original":
+		return "original"
+	default:
+		return strings.TrimSpace(v)
 	}
-	return v
 }
 
 func inferProviderEndpoint(provider map[string]any) string {
@@ -692,16 +697,24 @@ func normalizeEndpointSuffix(endpoint string, protocol string) string {
 	endpoint = strings.TrimSpace(endpoint)
 	if endpoint != "" && endpoint != "-" {
 		if parsed, err := url.Parse(endpoint); err == nil && parsed.Path != "" {
+			if parsed.Path == "/v1/chatcompletions" {
+				return "/v1/chat/completions"
+			}
 			return normalizePath(parsed.Path)
 		}
 		if strings.HasPrefix(endpoint, "/") {
+			if endpoint == "/v1/chatcompletions" {
+				return "/v1/chat/completions"
+			}
 			return normalizePath(endpoint)
 		}
 	}
 
-	normalizedProtocol := strings.ToLower(strings.TrimSpace(protocol))
-	if strings.Contains(normalizedProtocol, "openai") {
+	switch normalizeProtocol(protocol) {
+	case "openai/v1":
 		return "/v1/chat/completions"
+	case "anthropic/v1/messages":
+		return "/v1/messages"
 	}
 	return ""
 }

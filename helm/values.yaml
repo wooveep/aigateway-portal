@@ -6,7 +6,7 @@ imagePullSecrets: []
 
 image:
   repository: aigateway/portal
-  tag: "1.0.0"
+  tag: "1.0.0-dev-20260424103206"
   pullPolicy: IfNotPresent
 
 service:
@@ -50,7 +50,7 @@ backend:
   # Deprecated: use top-level image instead.
   image:
     repository: aigateway/portal
-    tag: "1.0.0"
+    tag: "1.0.0-dev-20260424103206"
     pullPolicy: IfNotPresent
   # Deprecated: use top-level service.port instead.
   service:
@@ -79,6 +79,7 @@ backend:
   inviteExpireDays: 365
   shutdownGraceSeconds: 10
   displayName: AIGateway 用户门户
+  publicBaseURL: ""
   gateway:
     publicBaseURL: ""
     internalBaseURL: ""

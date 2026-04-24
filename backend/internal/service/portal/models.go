@@ -645,13 +645,8 @@ func toPortalModelInfoFromPublishedBinding(record gdb.Record) model.ModelInfo {
 		capabilitySummary = strings.TrimSpace(record["vendor"].String())
 	}
 	endpoint := strings.TrimSpace(record["endpoint"].String())
-	if endpoint == "" {
-		endpoint = "-"
-	}
-	sdk := strings.TrimSpace(record["protocol"].String())
-	if sdk == "" {
-		sdk = "openai/v1"
-	}
+	sdk := normalizePublishedBindingProtocol(record["protocol"].String())
+	endpoint = normalizePublishedBindingEndpoint(endpoint, record["protocol"].String())
 	pricing, _, _ := parseModelBindingPricingJSON(firstNonEmpty(record["version_pricing_json"].String(), record["pricing_json"].String()), modelType)
 	updatedAt := model.DayText(model.NowInAppLocation())
 	if updatedTime := record["updated_at"].Time(); !updatedTime.IsZero() {

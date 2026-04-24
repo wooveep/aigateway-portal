@@ -40,6 +40,7 @@ type Config struct {
 	RechargeFallbackAvgCostPer1K float64
 	ShutdownGracePeriod          time.Duration
 	PortalDisplayName            string
+	PortalPublicBaseURL          string
 	GatewayPublicBaseURL         string
 	GatewayInternalBaseURL       string
 	GatewayPublicHostFallback    string
@@ -79,6 +80,7 @@ func Load() Config {
 		RechargeFallbackAvgCostPer1K: getEnvFloat("PORTAL_RECHARGE_FALLBACK_AVG_COST_PER_1K", 0.02),
 		ShutdownGracePeriod:          time.Duration(getEnvInt("PORTAL_SHUTDOWN_GRACE_SECONDS", 10)) * time.Second,
 		PortalDisplayName:            getEnv("PORTAL_DISPLAY_NAME", "AIGateway 用户门户"),
+		PortalPublicBaseURL:          strings.TrimRight(getEnv("PORTAL_PUBLIC_BASE_URL", ""), "/"),
 		GatewayPublicBaseURL:         strings.TrimRight(getEnv("PORTAL_GATEWAY_PUBLIC_BASE_URL", ""), "/"),
 		GatewayInternalBaseURL:       strings.TrimRight(getEnv("PORTAL_GATEWAY_INTERNAL_BASE_URL", ""), "/"),
 		GatewayPublicHostFallback:    strings.TrimSpace(getEnv("PORTAL_GATEWAY_PUBLIC_HOST_FALLBACK", "")),

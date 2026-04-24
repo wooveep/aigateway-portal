@@ -3,7 +3,6 @@ package portal
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -14,11 +13,6 @@ import (
 	"higress-portal-backend/internal/consts"
 	"higress-portal-backend/internal/model"
 )
-
-type accountHierarchyRow struct {
-	ConsumerName       string
-	ParentConsumerName string
-}
 
 func (s *Service) ResolveAccessibleConsumer(ctx context.Context, operatorConsumerName string, targetConsumerName string) (string, error) {
 	operator := model.NormalizeUsername(operatorConsumerName)
@@ -225,6 +219,107 @@ func (s *Service) UpdateManagedAccount(ctx context.Context, operatorConsumerName
 	return *summary, nil
 }
 
+func (s *Service) CreateManagedAccount(ctx context.Context, operatorConsumerName string,
+	req model.CreateManagedAccountRequest,
+) (model.CreateManagedAccountResponse, error) {
+	operator := model.NormalizeUsername(operatorConsumerName)
+	if operator == "" {
+		return model.CreateManagedAccountResponse{}, apperr.New(401, "unauthorized")
+	}
+
+	orgContext, err := s.loadUserOrgContext(ctx, operator)
+	if err != nil {
+		return model.CreateManagedAccountResponse{}, err
+	}
+	if !orgContext.IsDepartmentAdmin || strings.TrimSpace(orgContext.DepartmentID) == "" {
+		return model.CreateManagedAccountResponse{}, apperr.New(403, "department admin required")
+	}
+
+	consumerName, err := requireNonBlankValue(model.NormalizeUsername(req.ConsumerName), "consumerName is required")
+	if err != nil {
+		return model.CreateManagedAccountResponse{}, err
+	}
+	displayName, err := requireNonBlankValue(req.DisplayName, "displayName is required")
+	if err != nil {
+		return model.CreateManagedAccountResponse{}, err
+	}
+	if strings.EqualFold(consumerName, operator) {
+		return model.CreateManagedAccountResponse{}, apperr.New(400, "member account must differ from operator")
+	}
+
+	existing, err := s.getUserByName(ctx, consumerName)
+	if err != nil {
+		return model.CreateManagedAccountResponse{}, err
+	}
+	if existing != nil {
+		return model.CreateManagedAccountResponse{}, apperr.New(409, "consumer already exists")
+	}
+
+	password := strings.TrimSpace(req.Password)
+	tempPassword := ""
+	if password == "" {
+		password = newManagedAccountTempPassword()
+		tempPassword = password
+	}
+	passwordHash, err := hashPassword(password)
+	if err != nil {
+		return model.CreateManagedAccountResponse{}, gerror.Wrap(err, "hash managed account password failed")
+	}
+
+	now := model.NowInAppLocation()
+	if err = s.db.Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
+		if _, txErr := tx.Exec(`
+			INSERT INTO portal_user (
+				consumer_name, display_name, email, password_hash, status, source, user_level, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			consumerName,
+			displayName,
+			strings.TrimSpace(req.Email),
+			passwordHash,
+			consts.UserStatusActive,
+			"portal",
+			consts.UserLevelNormal,
+			now,
+			now,
+		); txErr != nil {
+			return gerror.Wrap(txErr, "insert managed account user failed")
+		}
+
+		if _, txErr := tx.Exec(`
+			INSERT INTO org_account_membership (consumer_name, department_id, created_at, updated_at)
+			VALUES (?, ?, ?, ?)
+			`+s.upsertClause([]string{"consumer_name"},
+			s.assignExcluded("department_id"),
+			s.assignExcluded("updated_at"))+``,
+			consumerName,
+			orgContext.DepartmentID,
+			now,
+			now,
+		); txErr != nil {
+			return gerror.Wrap(txErr, "insert managed account membership failed")
+		}
+		return nil
+	}); err != nil {
+		return model.CreateManagedAccountResponse{}, gerror.Wrap(err, "create managed account failed")
+	}
+	if err = s.syncKeyAuthConsumers(ctx); err != nil {
+		return model.CreateManagedAccountResponse{}, apperr.New(503,
+			"managed account created but failed to sync gateway key-auth", err.Error())
+	}
+
+	summary, err := s.getSingleManagedAccountSummary(ctx, consumerName)
+	if err != nil {
+		return model.CreateManagedAccountResponse{}, err
+	}
+	if summary == nil {
+		return model.CreateManagedAccountResponse{}, apperr.New(404, "managed account not found")
+	}
+	return model.CreateManagedAccountResponse{
+		Account:      *summary,
+		TempPassword: tempPassword,
+	}, nil
+}
+
 func (s *Service) AdjustManagedAccountBalance(ctx context.Context, operatorConsumerName string, targetConsumerName string,
 	req model.AdjustManagedAccountBalanceRequest,
 ) (model.ManagedAccountSummary, error) {
@@ -242,7 +337,6 @@ func (s *Service) AdjustManagedAccountBalance(ctx context.Context, operatorConsu
 	now := model.NowInAppLocation()
 	adjustmentID := fmt.Sprintf("BA%d%s", time.Now().UnixMilli(), strings.ToUpper(randomString(4)))
 	reason := strings.TrimSpace(req.Reason)
-	txID := "a" + sha256Hex("portal_balance_adjustment:" + adjustmentID)[:32]
 
 	err = s.db.Transaction(ctx, func(ctx context.Context, tx gdb.TX) error {
 		if _, txErr := tx.Exec(`
@@ -259,36 +353,46 @@ func (s *Service) AdjustManagedAccountBalance(ctx context.Context, operatorConsu
 			return gerror.Wrap(txErr, "insert balance adjustment failed")
 		}
 
+		if txErr := s.applyWalletDeltaWithGuard(tx, normalizedOperator, -deltaMicroYuan, "operator balance is insufficient"); txErr != nil {
+			return txErr
+		}
+		if txErr := s.applyWalletDeltaWithGuard(tx, target, deltaMicroYuan, "target balance is insufficient"); txErr != nil {
+			return txErr
+		}
+
 		if _, txErr := tx.Exec(`
 			INSERT INTO billing_transaction
 			(tx_id, consumer_name, tx_type, amount_micro_yuan, currency, source_type, source_id, occurred_at, created_at)
 			VALUES (?, ?, 'adjust', ?, 'CNY', 'portal_balance_adjustment', ?, ?, ?)`,
-			txID,
-			target,
-			deltaMicroYuan,
-			adjustmentID,
+			"a"+sha256Hex("portal_balance_adjustment:" + adjustmentID + ":operator")[:32],
+			normalizedOperator,
+			0-deltaMicroYuan,
+			adjustmentID+":operator",
 			now,
 			now,
 		); txErr != nil {
-			return gerror.Wrap(txErr, "insert balance transaction failed")
+			return gerror.Wrap(txErr, "insert operator transfer transaction failed")
 		}
-
 		if _, txErr := tx.Exec(`
-			INSERT INTO billing_wallet
-			(consumer_name, currency, available_micro_yuan, version)
-			VALUES (?, 'CNY', ?, 1)
-			`+s.upsertClause([]string{"consumer_name"},
-			s.upsertAdd("billing_wallet", "available_micro_yuan"),
-			s.upsertAdd("billing_wallet", "version"))+``,
+			INSERT INTO billing_transaction
+			(tx_id, consumer_name, tx_type, amount_micro_yuan, currency, source_type, source_id, occurred_at, created_at)
+			VALUES (?, ?, 'adjust', ?, 'CNY', 'portal_balance_adjustment', ?, ?, ?)`,
+			"a"+sha256Hex("portal_balance_adjustment:" + adjustmentID + ":target")[:32],
 			target,
 			deltaMicroYuan,
+			adjustmentID+":target",
+			now,
+			now,
 		); txErr != nil {
-			return gerror.Wrap(txErr, "update billing wallet failed")
+			return gerror.Wrap(txErr, "insert target transfer transaction failed")
 		}
 		return nil
 	})
 	if err != nil {
 		return model.ManagedAccountSummary{}, gerror.Wrap(err, "adjust managed account balance failed")
+	}
+	if err = s.syncConsumerBalanceToRedis(ctx, normalizedOperator); err != nil {
+		s.logf(ctx, "sync operator balance to redis failed: consumer=%s err=%v", normalizedOperator, err)
 	}
 	if err = s.syncConsumerBalanceToRedis(ctx, target); err != nil {
 		s.logf(ctx, "sync managed balance to redis failed: consumer=%s err=%v", target, err)
@@ -322,8 +426,7 @@ func (s *Service) listAccountSummaries(ctx context.Context, consumerNames []stri
 
 	query, args := buildConsumerInQuery(`
 		SELECT u.consumer_name, u.display_name, u.email, u.user_level, u.status,
-			COALESCE(m.department_id, '') AS department_id,
-			COALESCE(m.parent_consumer_name, '') AS parent_consumer_name
+			COALESCE(m.department_id, '') AS department_id
 		FROM portal_user u
 		LEFT JOIN org_account_membership m ON m.consumer_name = u.consumer_name
 		WHERE u.consumer_name IN (%s)
@@ -378,20 +481,19 @@ func (s *Service) listAccountSummaries(ctx context.Context, consumerNames []stri
 			return nil, ctxErr
 		}
 		items = append(items, model.ManagedAccountSummary{
-			ConsumerName:       consumerName,
-			DisplayName:        strings.TrimSpace(record["display_name"].String()),
-			Email:              strings.TrimSpace(record["email"].String()),
-			DepartmentID:       orgContext.DepartmentID,
-			DepartmentName:     orgContext.DepartmentName,
-			DepartmentPath:     orgContext.DepartmentPath,
-			ParentConsumerName: strings.TrimSpace(record["parent_consumer_name"].String()),
-			AdminConsumerName:  orgContext.AdminConsumerName,
-			IsDepartmentAdmin:  orgContext.IsDepartmentAdmin,
-			UserLevel:          normalizeUserLevel(record["user_level"].String()),
-			Status:             normalizeManagedAccountStatusOrDefault(record["status"].String()),
-			Balance:            microYuanToText(balanceMap[consumerName]),
-			TotalConsumption:   microYuanToText(consumptionMap[consumerName]),
-			ActiveKeys:         activeKeyMap[consumerName],
+			ConsumerName:      consumerName,
+			DisplayName:       strings.TrimSpace(record["display_name"].String()),
+			Email:             strings.TrimSpace(record["email"].String()),
+			DepartmentID:      orgContext.DepartmentID,
+			DepartmentName:    orgContext.DepartmentName,
+			DepartmentPath:    orgContext.DepartmentPath,
+			AdminConsumerName: orgContext.AdminConsumerName,
+			IsDepartmentAdmin: orgContext.IsDepartmentAdmin,
+			UserLevel:         normalizeUserLevel(record["user_level"].String()),
+			Status:            normalizeManagedAccountStatusOrDefault(record["status"].String()),
+			Balance:           microYuanToText(balanceMap[consumerName]),
+			TotalConsumption:  microYuanToText(consumptionMap[consumerName]),
+			ActiveKeys:        activeKeyMap[consumerName],
 		})
 	}
 	return items, nil
@@ -470,45 +572,6 @@ func (s *Service) listManagedDescendantSet(ctx context.Context, operatorConsumer
 	return items, nil
 }
 
-func collectManagedDescendants(rows []accountHierarchyRow, operatorConsumerName string) []string {
-	operator := model.NormalizeUsername(operatorConsumerName)
-	if operator == "" {
-		return []string{}
-	}
-
-	childrenByParent := make(map[string][]string, len(rows))
-	for _, row := range rows {
-		consumerName := model.NormalizeUsername(row.ConsumerName)
-		parentConsumerName := model.NormalizeUsername(row.ParentConsumerName)
-		if consumerName == "" || parentConsumerName == "" || consumerName == operator {
-			continue
-		}
-		childrenByParent[parentConsumerName] = append(childrenByParent[parentConsumerName], consumerName)
-	}
-	for parent, children := range childrenByParent {
-		sort.Strings(children)
-		childrenByParent[parent] = children
-	}
-
-	queue := []string{operator}
-	visited := map[string]struct{}{operator: {}}
-	descendants := make([]string, 0)
-
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-		for _, child := range childrenByParent[current] {
-			if _, ok := visited[child]; ok {
-				continue
-			}
-			visited[child] = struct{}{}
-			descendants = append(descendants, child)
-			queue = append(queue, child)
-		}
-	}
-	return descendants
-}
-
 func buildConsumerInQuery(queryTemplate string, consumerNames []string) (string, []any) {
 	placeholders := make([]string, 0, len(consumerNames))
 	args := make([]any, 0, len(consumerNames))
@@ -541,4 +604,48 @@ func normalizeManagedAccountStatusOrDefault(status string) string {
 		return consts.UserStatusActive
 	}
 	return normalized
+}
+
+func newManagedAccountTempPassword() string {
+	return strings.ToUpper(randomString(8))
+}
+
+func (s *Service) applyWalletDeltaWithGuard(tx gdb.TX, consumerName string, deltaMicroYuan int64, insufficientMessage string) error {
+	if deltaMicroYuan == 0 {
+		return nil
+	}
+
+	result, err := tx.Exec(`
+		UPDATE billing_wallet
+		SET available_micro_yuan = available_micro_yuan + ?, version = version + 1, updated_at = CURRENT_TIMESTAMP
+		WHERE consumer_name = ?
+		  AND currency = 'CNY'
+		  AND available_micro_yuan + ? >= 0`,
+		deltaMicroYuan,
+		consumerName,
+		deltaMicroYuan,
+	)
+	if err != nil {
+		return gerror.Wrap(err, "update billing wallet delta failed")
+	}
+	if affected, _ := result.RowsAffected(); affected > 0 {
+		return nil
+	}
+	if deltaMicroYuan < 0 {
+		return apperr.New(400, insufficientMessage)
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO billing_wallet
+		(consumer_name, currency, available_micro_yuan, version)
+		VALUES (?, 'CNY', ?, 1)
+		`+s.upsertClause([]string{"consumer_name"},
+		s.assignExcluded("currency"),
+		s.upsertAdd("billing_wallet", "available_micro_yuan"),
+		"version = billing_wallet.version + 1",
+		"updated_at = CURRENT_TIMESTAMP")+``,
+		consumerName,
+		deltaMicroYuan,
+	)
+	return gerror.Wrap(err, "upsert billing wallet delta failed")
 }

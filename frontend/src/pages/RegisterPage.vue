@@ -10,6 +10,13 @@
         <h2 class="auth-title">注册</h2>
       </template>
 
+      <a-alert
+        class="portal-auth__notice"
+        type="info"
+        show-icon
+        message="企业账号也可以通过 SSO 登录。首次登录自动建档后，仍需管理员启用账号。"
+      />
+
       <a-form layout="vertical" :model="form" @finish="onSubmit">
         <a-form-item
           label="邀请码"
@@ -88,3 +95,9 @@ const goLogin = () => {
   router.push('/login');
 };
 </script>
+
+<style scoped>
+.portal-auth__notice {
+  margin-bottom: 16px;
+}
+</style>

@@ -122,17 +122,16 @@ func (s *Service) Login(ctx context.Context, req model.LoginRequest) (model.Auth
 	}
 
 	return model.AuthUser{
-		ConsumerName:       user.ConsumerName,
-		DisplayName:        user.DisplayName,
-		Email:              user.Email,
-		DepartmentID:       orgContext.DepartmentID,
-		DepartmentName:     orgContext.DepartmentName,
-		DepartmentPath:     orgContext.DepartmentPath,
-		ParentConsumerName: orgContext.ParentConsumerName,
-		AdminConsumerName:  orgContext.AdminConsumerName,
-		IsDepartmentAdmin:  orgContext.IsDepartmentAdmin,
-		UserLevel:          normalizeUserLevel(user.UserLevel),
-		Status:             user.Status,
+		ConsumerName:      user.ConsumerName,
+		DisplayName:       user.DisplayName,
+		Email:             user.Email,
+		DepartmentID:      orgContext.DepartmentID,
+		DepartmentName:    orgContext.DepartmentName,
+		DepartmentPath:    orgContext.DepartmentPath,
+		AdminConsumerName: orgContext.AdminConsumerName,
+		IsDepartmentAdmin: orgContext.IsDepartmentAdmin,
+		UserLevel:         normalizeUserLevel(user.UserLevel),
+		Status:            user.Status,
 	}, nil
 }
 
@@ -233,17 +232,16 @@ func (s *Service) AuthenticateSession(ctx context.Context, token string) (model.
 		return model.AuthUser{}, err
 	}
 	user := model.AuthUser{
-		ConsumerName:       record["consumer_name"].String(),
-		DisplayName:        record["display_name"].String(),
-		Email:              record["email"].String(),
-		DepartmentID:       orgContext.DepartmentID,
-		DepartmentName:     orgContext.DepartmentName,
-		DepartmentPath:     orgContext.DepartmentPath,
-		ParentConsumerName: orgContext.ParentConsumerName,
-		AdminConsumerName:  orgContext.AdminConsumerName,
-		IsDepartmentAdmin:  orgContext.IsDepartmentAdmin,
-		UserLevel:          normalizeUserLevel(record["user_level"].String()),
-		Status:             record["status"].String(),
+		ConsumerName:      record["consumer_name"].String(),
+		DisplayName:       record["display_name"].String(),
+		Email:             record["email"].String(),
+		DepartmentID:      orgContext.DepartmentID,
+		DepartmentName:    orgContext.DepartmentName,
+		DepartmentPath:    orgContext.DepartmentPath,
+		AdminConsumerName: orgContext.AdminConsumerName,
+		IsDepartmentAdmin: orgContext.IsDepartmentAdmin,
+		UserLevel:         normalizeUserLevel(record["user_level"].String()),
+		Status:            record["status"].String(),
 	}
 	if user.Status != consts.UserStatusActive {
 		return model.AuthUser{}, apperr.New(403, "account disabled")
@@ -268,7 +266,7 @@ func isPortalLoginBlockedUser(consumerName string, source string) bool {
 
 func (s *Service) getUserByName(ctx context.Context, consumerName string) (*model.PortalUserRow, error) {
 	record, err := s.db.GetOne(ctx, `
-		SELECT u.consumer_name, u.display_name, u.email, m.department_id, m.parent_consumer_name,
+		SELECT u.consumer_name, u.display_name, u.email, m.department_id,
 			u.user_level, u.status, u.source, u.password_hash, u.last_login_at
 		FROM portal_user u
 		LEFT JOIN org_account_membership m ON m.consumer_name = u.consumer_name

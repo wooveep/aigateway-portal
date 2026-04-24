@@ -9,6 +9,8 @@ import type {
   ChatSessionSummary,
   ConsumptionRecord,
   CostDetailRecord,
+  CreateManagedAccountRequest,
+  CreateManagedAccountResponse,
   DepartmentBillingSummary,
   InvoiceProfile,
   InvoiceRecord,
@@ -16,6 +18,7 @@ import type {
   ManagedDepartmentNode,
   ModelInfo,
   OpenStats,
+  PublicSSOConfig,
   RequestDetailRecord,
   RechargeRecord,
 } from './types';
@@ -54,6 +57,11 @@ export async function fetchMe() {
   return data;
 }
 
+export async function fetchSSOConfig() {
+  const { data } = await client.get<PublicSSOConfig>('/auth/sso/config');
+  return data;
+}
+
 export async function changePassword(payload: ChangePasswordPayload) {
   const { data } = await client.post<{ success: boolean }>('/auth/change-password', payload);
   return data;
@@ -61,6 +69,11 @@ export async function changePassword(payload: ChangePasswordPayload) {
 
 export async function fetchManagedAccounts() {
   const { data } = await client.get<ManagedAccountSummary[]>('/accounts/managed');
+  return data;
+}
+
+export async function createManagedAccount(payload: CreateManagedAccountRequest) {
+  const { data } = await client.post<CreateManagedAccountResponse>('/accounts/managed', payload);
   return data;
 }
 

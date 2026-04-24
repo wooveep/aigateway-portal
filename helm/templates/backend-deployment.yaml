@@ -117,6 +117,10 @@ spec:
               value: {{ .Values.backend.shutdownGraceSeconds | quote }}
             - name: PORTAL_DISPLAY_NAME
               value: {{ .Values.backend.displayName | quote }}
+            {{- if .Values.backend.publicBaseURL }}
+            - name: PORTAL_PUBLIC_BASE_URL
+              value: {{ .Values.backend.publicBaseURL | quote }}
+            {{- end }}
             {{- if .Values.backend.gateway.publicBaseURL }}
             - name: PORTAL_GATEWAY_PUBLIC_BASE_URL
               value: {{ .Values.backend.gateway.publicBaseURL | quote }}

@@ -11,11 +11,15 @@ export interface AuthUser {
   departmentId: string;
   departmentName: string;
   departmentPath: string;
-  parentConsumerName: string;
   adminConsumerName: string;
   isDepartmentAdmin: boolean;
   userLevel: 'normal' | 'plus' | 'pro' | 'ultra' | string;
   status: 'active' | 'disabled' | 'pending';
+}
+
+export interface PublicSSOConfig {
+  enabled: boolean;
+  displayName: string;
 }
 
 export interface ManagedAccountSummary {
@@ -25,7 +29,6 @@ export interface ManagedAccountSummary {
   departmentId: string;
   departmentName: string;
   departmentPath: string;
-  parentConsumerName: string;
   adminConsumerName: string;
   isDepartmentAdmin: boolean;
   userLevel: 'normal' | 'plus' | 'pro' | 'ultra' | string;
@@ -33,6 +36,18 @@ export interface ManagedAccountSummary {
   balance: string;
   totalConsumption: string;
   activeKeys: number;
+}
+
+export interface CreateManagedAccountRequest {
+  consumerName: string;
+  displayName: string;
+  email?: string;
+  password?: string;
+}
+
+export interface CreateManagedAccountResponse {
+  account: ManagedAccountSummary;
+  tempPassword?: string;
 }
 
 export interface ManagedDepartmentNode {

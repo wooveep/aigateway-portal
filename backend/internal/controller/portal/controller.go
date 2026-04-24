@@ -215,6 +215,21 @@ func (c *Controller) ManagedDepartments(r *ghttp.Request) {
 	httpx.WriteJSON(r, http.StatusOK, resp)
 }
 
+func (c *Controller) CreateManagedAccount(r *ghttp.Request) {
+	user := authUserFromRequest(r)
+	var req model.CreateManagedAccountRequest
+	if err := r.Parse(&req); err != nil {
+		httpx.WriteJSON(r, http.StatusBadRequest, g.Map{"message": "invalid request body"})
+		return
+	}
+	resp, err := c.svc.CreateManagedAccount(r.Context(), user.ConsumerName, req)
+	if err != nil {
+		httpx.WriteError(r, err)
+		return
+	}
+	httpx.WriteJSON(r, http.StatusCreated, resp)
+}
+
 func (c *Controller) UpdateManagedAccount(r *ghttp.Request) {
 	user := authUserFromRequest(r)
 	targetConsumer := r.Get("consumerName").String()

@@ -11,8 +11,10 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AAlert: typeof import('ant-design-vue/es')['Alert']
     AButton: typeof import('ant-design-vue/es')['Button']
     ACard: typeof import('ant-design-vue/es')['Card']
+    ADivider: typeof import('ant-design-vue/es')['Divider']
     ADrawer: typeof import('ant-design-vue/es')['Drawer']
     ADropdown: typeof import('ant-design-vue/es')['Dropdown']
     AEmpty: typeof import('ant-design-vue/es')['Empty']
@@ -25,7 +27,6 @@ declare module 'vue' {
     AModal: typeof import('ant-design-vue/es')['Modal']
     APopconfirm: typeof import('ant-design-vue/es')['Popconfirm']
     ASelect: typeof import('ant-design-vue/es')['Select']
-    ASelectOption: typeof import('ant-design-vue/es')['SelectOption']
     ASkeleton: typeof import('ant-design-vue/es')['Skeleton']
     ATextarea: typeof import('ant-design-vue/es')['Textarea']
     ATree: typeof import('ant-design-vue/es')['Tree']

@@ -146,6 +146,36 @@ var tableDDLs = []string{
 		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 	)`,
+	`CREATE TABLE IF NOT EXISTS portal_sso_config (
+		provider_type VARCHAR(16) PRIMARY KEY,
+		enabled BOOLEAN NOT NULL DEFAULT FALSE,
+		display_name VARCHAR(128) NOT NULL DEFAULT '',
+		issuer_url VARCHAR(512) NOT NULL DEFAULT '',
+		client_id VARCHAR(255) NOT NULL DEFAULT '',
+		client_secret_encrypted TEXT NOT NULL DEFAULT '',
+		scopes_json TEXT NULL,
+		claim_mapping_json TEXT NULL,
+		updated_by VARCHAR(128) NOT NULL DEFAULT '',
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`,
+	`CREATE TABLE IF NOT EXISTS portal_user_sso_identity (
+		id BIGSERIAL PRIMARY KEY,
+		provider_key VARCHAR(64) NOT NULL,
+		issuer VARCHAR(512) NOT NULL,
+		subject VARCHAR(512) NOT NULL,
+		consumer_name VARCHAR(128) NOT NULL,
+		email VARCHAR(255) NOT NULL DEFAULT '',
+		email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+		display_name VARCHAR(255) NOT NULL DEFAULT '',
+		claims_json TEXT NULL,
+		linked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		last_login_at TIMESTAMP NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		CONSTRAINT uk_portal_user_sso_identity_subject UNIQUE (provider_key, issuer, subject),
+		CONSTRAINT uk_portal_user_sso_identity_consumer UNIQUE (provider_key, consumer_name)
+	)`,
 }
 
 var columnDDLs = []columnMigration{
@@ -207,6 +237,7 @@ var rawAdjustments = []string{
 	`CREATE INDEX IF NOT EXISTS idx_org_department_status ON org_department (status)`,
 	`CREATE INDEX IF NOT EXISTS idx_org_account_department ON org_account_membership (department_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_org_account_parent ON org_account_membership (parent_consumer_name)`,
+	`UPDATE org_account_membership SET parent_consumer_name = NULL WHERE parent_consumer_name IS NOT NULL`,
 	`CREATE INDEX IF NOT EXISTS idx_asset_grant_asset ON asset_grant (asset_type, asset_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_asset_grant_subject_lookup ON asset_grant (subject_type, subject_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_portal_model_asset_display_name ON portal_model_asset (display_name)`,
@@ -215,6 +246,8 @@ var rawAdjustments = []string{
 	`CREATE INDEX IF NOT EXISTS idx_portal_model_binding_provider ON portal_model_binding (provider_name)`,
 	`CREATE INDEX IF NOT EXISTS idx_portal_agent_catalog_status ON portal_agent_catalog (status)`,
 	`CREATE INDEX IF NOT EXISTS idx_portal_agent_catalog_display_name ON portal_agent_catalog (display_name)`,
+	`CREATE INDEX IF NOT EXISTS idx_portal_user_sso_identity_consumer_name ON portal_user_sso_identity (consumer_name)`,
+	`CREATE INDEX IF NOT EXISTS idx_portal_user_sso_identity_email ON portal_user_sso_identity (email)`,
 }
 
 func ApplyToGDB(ctx context.Context, db gdb.DB) error {
@@ -280,6 +313,8 @@ func RequiredTables() []string {
 		"portal_model_asset",
 		"portal_model_binding",
 		"portal_agent_catalog",
+		"portal_sso_config",
+		"portal_user_sso_identity",
 	}
 }
 

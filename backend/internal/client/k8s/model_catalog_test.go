@@ -15,20 +15,26 @@ func TestBuildGatewayEndpoint(t *testing.T) {
 		{
 			name:     "route prefix with openai protocol uses completions suffix",
 			route:    "/doubao",
-			protocol: "openai",
+			protocol: "openai/v1",
 			want:     "/doubao/v1/chat/completions",
 		},
 		{
 			name:     "absolute fallback url reuses path component",
 			route:    "/doubao",
-			protocol: "openai",
+			protocol: "openai/v1",
 			fallback: "https://example.com/custom/v1/chat/completions",
 			want:     "/doubao/custom/v1/chat/completions",
 		},
 		{
+			name:     "anthropic protocol uses messages suffix",
+			route:    "/claude",
+			protocol: "anthropic/v1/messages",
+			want:     "/claude/v1/messages",
+		},
+		{
 			name:     "non-openai route keeps prefix when no suffix",
 			route:    "/rerank",
-			protocol: "rest",
+			protocol: "original",
 			want:     "/rerank",
 		},
 	}
@@ -50,12 +56,34 @@ func TestBuildInternalGatewayEndpoint(t *testing.T) {
 	got := buildInternalGatewayEndpoint(
 		"/internal/ai-routes/doubao",
 		"/doubao",
-		"openai",
+		"openai/v1",
 		"/doubao/v1/chat/completions",
 	)
 	want := "/internal/ai-routes/doubao/v1/chat/completions"
 	if got != want {
 		t.Fatalf("buildInternalGatewayEndpoint() = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizeProtocol(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"":                    "openai/v1",
+		"auto":                "openai/v1",
+		"openai":              "openai/v1",
+		"responses":           "openai/v1",
+		"anthropic":           "anthropic/v1/messages",
+		"claude":              "anthropic/v1/messages",
+		"/v1/messages":        "anthropic/v1/messages",
+		"original":            "original",
+		"custom/protocol":     "custom/protocol",
+	}
+
+	for input, want := range tests {
+		if got := normalizeProtocol(input); got != want {
+			t.Fatalf("normalizeProtocol(%q) = %q, want %q", input, got, want)
+		}
 	}
 }
 

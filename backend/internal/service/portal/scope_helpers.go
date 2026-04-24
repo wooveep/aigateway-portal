@@ -30,17 +30,16 @@ func (s *Service) resolveScopeUser(ctx context.Context, consumerName string) (mo
 		return model.AuthUser{}, err
 	}
 	user := model.AuthUser{
-		ConsumerName:       row.ConsumerName,
-		DisplayName:        row.DisplayName,
-		Email:              row.Email,
-		DepartmentID:       orgContext.DepartmentID,
-		DepartmentName:     orgContext.DepartmentName,
-		DepartmentPath:     orgContext.DepartmentPath,
-		ParentConsumerName: orgContext.ParentConsumerName,
-		AdminConsumerName:  orgContext.AdminConsumerName,
-		IsDepartmentAdmin:  orgContext.IsDepartmentAdmin,
-		UserLevel:          normalizeUserLevel(row.UserLevel),
-		Status:             row.Status,
+		ConsumerName:      row.ConsumerName,
+		DisplayName:       row.DisplayName,
+		Email:             row.Email,
+		DepartmentID:      orgContext.DepartmentID,
+		DepartmentName:    orgContext.DepartmentName,
+		DepartmentPath:    orgContext.DepartmentPath,
+		AdminConsumerName: orgContext.AdminConsumerName,
+		IsDepartmentAdmin: orgContext.IsDepartmentAdmin,
+		UserLevel:         normalizeUserLevel(row.UserLevel),
+		Status:            row.Status,
 	}
 	if !strings.EqualFold(user.Status, consts.UserStatusActive) {
 		return model.AuthUser{}, apperr.New(403, "account disabled")

@@ -16,7 +16,7 @@ const router = createRouter({
     { path: '/agents', name: 'agents', component: () => import('./pages/AgentPlazaPage.vue') },
     { path: '/ai-chat', name: 'ai-chat', component: () => import('./pages/AIChatPage.vue') },
     { path: '/open-platform', name: 'open-platform', component: () => import('./pages/OpenPlatformPage.vue') },
-    { path: '/invoices', name: 'invoices', component: () => import('./pages/InvoicePage.vue') },
+    { path: '/invoices', redirect: '/billing' },
   ],
 });
 

@@ -13,12 +13,11 @@ import (
 const orgRootDepartmentID = "root"
 
 type userOrgContext struct {
-	DepartmentID       string
-	DepartmentName     string
-	DepartmentPath     string
-	ParentConsumerName string
-	AdminConsumerName  string
-	IsDepartmentAdmin  bool
+	DepartmentID      string
+	DepartmentName    string
+	DepartmentPath    string
+	AdminConsumerName string
+	IsDepartmentAdmin bool
 }
 
 func (s *Service) ensureOrganizationSchema(ctx context.Context) error {
@@ -57,8 +56,8 @@ func (s *Service) ensureRootDepartment(ctx context.Context) error {
 
 func (s *Service) ensureMembershipRows(ctx context.Context) error {
 	if _, err := s.db.Exec(ctx, `
-		INSERT INTO org_account_membership (consumer_name, department_id, parent_consumer_name)
-		SELECT consumer_name, NULL, NULL
+		INSERT INTO org_account_membership (consumer_name, department_id)
+		SELECT consumer_name, NULL
 		FROM portal_user
 		WHERE COALESCE(is_deleted, FALSE) = FALSE
 		`+s.upsertClause([]string{"consumer_name"}, s.assignExcluded("consumer_name"))+``); err != nil {
@@ -73,8 +72,8 @@ func (s *Service) ensureMembershipForConsumer(ctx context.Context, consumerName 
 		return nil
 	}
 	if _, err := s.db.Exec(ctx, `
-		INSERT INTO org_account_membership (consumer_name, department_id, parent_consumer_name)
-		VALUES (?, NULL, NULL)
+		INSERT INTO org_account_membership (consumer_name, department_id)
+		VALUES (?, NULL)
 		`+s.upsertClause([]string{"consumer_name"}, s.assignExcluded("consumer_name"))+``, normalizedConsumer); err != nil {
 		return gerror.Wrap(err, "ensure consumer membership failed")
 	}
@@ -90,7 +89,6 @@ func (s *Service) loadUserOrgContext(ctx context.Context, consumerName string) (
 	record, err := s.db.GetOne(ctx, `
 		SELECT
 			m.department_id,
-			m.parent_consumer_name,
 			COALESCE(d.admin_consumer_name, '') AS admin_consumer_name
 		FROM org_account_membership m
 		LEFT JOIN org_department d ON d.department_id = m.department_id
@@ -104,12 +102,10 @@ func (s *Service) loadUserOrgContext(ctx context.Context, consumerName string) (
 	}
 
 	departmentID := strings.TrimSpace(record["department_id"].String())
-	parentConsumerName := strings.TrimSpace(record["parent_consumer_name"].String())
 	adminConsumerName := strings.TrimSpace(record["admin_consumer_name"].String())
 	if departmentID == "" {
 		return userOrgContext{
-			ParentConsumerName: parentConsumerName,
-			AdminConsumerName:  adminConsumerName,
+			AdminConsumerName: adminConsumerName,
 		}, nil
 	}
 
@@ -118,12 +114,11 @@ func (s *Service) loadUserOrgContext(ctx context.Context, consumerName string) (
 		return userOrgContext{}, err
 	}
 	return userOrgContext{
-		DepartmentID:       departmentID,
-		DepartmentName:     departmentName,
-		DepartmentPath:     departmentPath,
-		ParentConsumerName: parentConsumerName,
-		AdminConsumerName:  adminConsumerName,
-		IsDepartmentAdmin:  adminConsumerName != "" && adminConsumerName == normalizedConsumer,
+		DepartmentID:      departmentID,
+		DepartmentName:    departmentName,
+		DepartmentPath:    departmentPath,
+		AdminConsumerName: adminConsumerName,
+		IsDepartmentAdmin: adminConsumerName != "" && adminConsumerName == normalizedConsumer,
 	}, nil
 }
 

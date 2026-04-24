@@ -2,7 +2,6 @@
 import {
   AppstoreOutlined,
   CommentOutlined,
-  FileTextOutlined,
   KeyOutlined,
   MenuOutlined,
   RobotOutlined,
@@ -45,7 +44,6 @@ const navigationItems = computed<NavigationItem[]>(() => {
     { key: '/models', label: '模型广场', icon: () => h(AppstoreOutlined) },
     { key: '/agents', label: '智能体广场', icon: () => h(RobotOutlined) },
     { key: '/open-platform', label: '开放平台', icon: () => h(KeyOutlined) },
-    { key: '/invoices', label: '发票管理', icon: () => h(FileTextOutlined) },
     { key: '/accounts', label: '部门管理', icon: () => h(TeamOutlined), adminOnly: true },
   ];
 

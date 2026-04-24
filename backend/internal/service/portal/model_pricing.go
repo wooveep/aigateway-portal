@@ -658,13 +658,8 @@ func (s *Service) loadPublishedBindingModelPrices(ctx context.Context) ([]active
 			name = modelID
 		}
 		endpoint := strings.TrimSpace(record["endpoint"].String())
-		if endpoint == "" {
-			endpoint = "-"
-		}
-		sdk := strings.TrimSpace(record["protocol"].String())
-		if sdk == "" {
-			sdk = "openai/v1"
-		}
+		sdk := normalizePublishedBindingProtocol(record["protocol"].String())
+		endpoint = normalizePublishedBindingEndpoint(endpoint, record["protocol"].String())
 
 		entries = append(entries, activeModelPrice{
 			ModelID:    modelID,
