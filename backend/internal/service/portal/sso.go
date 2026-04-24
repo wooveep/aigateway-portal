@@ -70,6 +70,11 @@ type portalSSOIdentityRecord struct {
 	DisplayName  string
 }
 
+type portalLocalUserRecord struct {
+	model.PortalUserRow
+	IsDeleted bool `orm:"is_deleted"`
+}
+
 func (s *Service) GetPublicSSOConfig(ctx context.Context) (model.PublicSSOConfig, error) {
 	cfg, err := s.loadPortalSSOConfig(ctx)
 	if err != nil {
@@ -210,6 +215,23 @@ func (s *Service) resolvePortalSSOLogin(ctx context.Context, cfg portalSSOConfig
 		return portalSSOLoginResult{}, err
 	}
 	if identity != nil {
+		user, userErr := s.getPortalLocalUserByName(ctx, identity.ConsumerName)
+		if userErr != nil {
+			return portalSSOLoginResult{}, userErr
+		}
+		switch {
+		case user == nil:
+			identity = nil
+		case user.IsDeleted:
+			if strings.EqualFold(strings.TrimSpace(user.Source), "sso") {
+				return s.restoreDeletedPortalSSOLoginForConsumer(ctx, user, idToken.Issuer, subject, email, emailVerified, displayName, claimsJSON, redirectPath)
+			}
+			identity = nil
+		default:
+			return s.completePortalSSOLoginForConsumer(ctx, identity.ConsumerName, idToken.Issuer, subject, email, emailVerified, displayName, claimsJSON, redirectPath)
+		}
+	}
+	if identity != nil {
 		return s.completePortalSSOLoginForConsumer(ctx, identity.ConsumerName, idToken.Issuer, subject, email, emailVerified, displayName, claimsJSON, redirectPath)
 	}
 
@@ -223,6 +245,13 @@ func (s *Service) resolvePortalSSOLogin(ctx context.Context, cfg portalSSOConfig
 	}
 	switch len(users) {
 	case 0:
+		deletedUser, deletedErr := s.getDeletedPortalSSOUserByEmail(ctx, email)
+		if deletedErr != nil {
+			return portalSSOLoginResult{}, deletedErr
+		}
+		if deletedUser != nil {
+			return s.restoreDeletedPortalSSOLoginForConsumer(ctx, deletedUser, idToken.Issuer, subject, email, emailVerified, displayName, claimsJSON, redirectPath)
+		}
 		consumerName, err := s.allocatePortalSSOConsumerName(ctx, email)
 		if err != nil {
 			return portalSSOLoginResult{}, err
@@ -318,6 +347,49 @@ func (s *Service) completePortalSSOLoginForConsumer(ctx context.Context, consume
 		User:         &authUser,
 		RedirectPath: sanitizePortalRedirectPath(redirectPath),
 	}, nil
+}
+
+func (s *Service) restoreDeletedPortalSSOLoginForConsumer(ctx context.Context, user *portalLocalUserRecord,
+	issuer, subject, email string, emailVerified bool, displayName, claimsJSON, redirectPath string,
+) (portalSSOLoginResult, error) {
+	if user == nil {
+		return portalSSOLoginResult{}, apperr.New(404, "linked local account not found")
+	}
+
+	restoredDisplayName := strings.TrimSpace(displayName)
+	if restoredDisplayName == "" {
+		restoredDisplayName = strings.TrimSpace(user.DisplayName)
+	}
+	if restoredDisplayName == "" {
+		restoredDisplayName = emailLocalPart(email)
+	}
+	if restoredDisplayName == "" {
+		restoredDisplayName = strings.TrimSpace(user.ConsumerName)
+	}
+
+	restoredEmail := strings.ToLower(strings.TrimSpace(email))
+	if restoredEmail == "" {
+		restoredEmail = strings.ToLower(strings.TrimSpace(user.Email))
+	}
+
+	if _, err := s.db.Exec(ctx, `
+		UPDATE portal_user
+		SET display_name = ?,
+			email = ?,
+			is_deleted = FALSE,
+			deleted_at = NULL,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE consumer_name = ?`,
+		restoredDisplayName,
+		restoredEmail,
+		user.ConsumerName,
+	); err != nil {
+		return portalSSOLoginResult{}, gerror.Wrap(err, "restore deleted portal sso user failed")
+	}
+	if err := s.ensureMembershipForConsumer(ctx, user.ConsumerName); err != nil {
+		return portalSSOLoginResult{}, err
+	}
+	return s.completePortalSSOLoginForConsumer(ctx, user.ConsumerName, issuer, subject, restoredEmail, emailVerified, restoredDisplayName, claimsJSON, redirectPath)
 }
 
 func (s *Service) createPortalSSOUserAndIdentity(ctx context.Context, issuer, subject, consumerName, email,
@@ -458,6 +530,51 @@ func (s *Service) listUsersByEmail(ctx context.Context, email string) ([]model.P
 	return items, nil
 }
 
+func (s *Service) getDeletedPortalSSOUserByEmail(ctx context.Context, email string) (*portalLocalUserRecord, error) {
+	record, err := s.db.GetOne(ctx, `
+		SELECT u.consumer_name, u.display_name, u.email, m.department_id,
+			u.user_level, u.status, u.source, u.password_hash, u.last_login_at, u.is_deleted
+		FROM portal_user u
+		LEFT JOIN org_account_membership m ON m.consumer_name = u.consumer_name
+		WHERE LOWER(u.email) = LOWER(?)
+		  AND COALESCE(u.is_deleted, FALSE) = TRUE
+		  AND LOWER(u.source) = 'sso'
+		ORDER BY u.updated_at DESC NULLS LAST, u.consumer_name ASC
+		LIMIT 1`, strings.TrimSpace(email))
+	if err != nil {
+		return nil, gerror.Wrap(err, "query deleted portal sso user by email failed")
+	}
+	if record.IsEmpty() {
+		return nil, nil
+	}
+	var item portalLocalUserRecord
+	if err := record.Struct(&item); err != nil {
+		return nil, gerror.Wrap(err, "convert deleted portal sso user by email failed")
+	}
+	return &item, nil
+}
+
+func (s *Service) getPortalLocalUserByName(ctx context.Context, consumerName string) (*portalLocalUserRecord, error) {
+	record, err := s.db.GetOne(ctx, `
+		SELECT u.consumer_name, u.display_name, u.email, m.department_id,
+			u.user_level, u.status, u.source, u.password_hash, u.last_login_at, u.is_deleted
+		FROM portal_user u
+		LEFT JOIN org_account_membership m ON m.consumer_name = u.consumer_name
+		WHERE u.consumer_name = ?
+		LIMIT 1`, strings.TrimSpace(consumerName))
+	if err != nil {
+		return nil, gerror.Wrap(err, "query portal local user failed")
+	}
+	if record.IsEmpty() {
+		return nil, nil
+	}
+	var item portalLocalUserRecord
+	if err := record.Struct(&item); err != nil {
+		return nil, gerror.Wrap(err, "convert portal local user failed")
+	}
+	return &item, nil
+}
+
 func (s *Service) allocatePortalSSOConsumerName(ctx context.Context, email string) (string, error) {
 	base := model.NormalizeUsername(emailLocalPart(email))
 	if base == "" {
@@ -469,7 +586,7 @@ func (s *Service) allocatePortalSSOConsumerName(ctx context.Context, email strin
 		fmt.Sprintf("%s-%s", base, sha256Hex(email)[:6]),
 	}
 	for _, candidate := range candidates {
-		existing, err := s.getUserByName(ctx, candidate)
+		existing, err := s.getPortalLocalUserByName(ctx, candidate)
 		if err != nil {
 			return "", err
 		}
@@ -479,7 +596,7 @@ func (s *Service) allocatePortalSSOConsumerName(ctx context.Context, email strin
 	}
 	for i := 0; i < 8; i++ {
 		candidate := fmt.Sprintf("%s-%s", base, strings.ToLower(randomString(4)))
-		existing, err := s.getUserByName(ctx, candidate)
+		existing, err := s.getPortalLocalUserByName(ctx, candidate)
 		if err != nil {
 			return "", err
 		}
