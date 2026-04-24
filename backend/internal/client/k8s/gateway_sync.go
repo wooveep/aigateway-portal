@@ -2,12 +2,14 @@ package k8s
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/gogf/gf/v2/errors/gerror"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/util/retry"
@@ -16,11 +18,16 @@ import (
 const (
 	keyAuthPluginLabelSelector = "higress.io/wasm-plugin-name=key-auth"
 	aiQuotaPluginLabelSelector = "higress.io/wasm-plugin-name=ai-quota"
+	keyAuthPluginName          = "key-auth"
+	keyAuthPluginVersion       = "2.0.0"
+	keyAuthInternalName        = "key-auth.internal"
 	defaultQuotaRedisPrefix    = "chat_quota:"
 	defaultBalanceRedisPrefix  = "billing:balance:"
 	defaultModelPriceRedisKey  = "billing:model-price:"
 	defaultUsageEventStream    = "billing:usage:stream"
 )
+
+var errKeyAuthPluginNotFound = errors.New("key-auth wasmplugin not found")
 
 type KeyAuthConsumer struct {
 	Name       string
@@ -87,6 +94,12 @@ func (c *Client) UpdateKeyAuthConsumers(ctx context.Context, consumers []KeyAuth
 
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		plugin, err := c.getKeyAuthPlugin(ctx)
+		if errors.Is(err, errKeyAuthPluginNotFound) {
+			if ensureErr := c.ensureKeyAuthPlugin(ctx); ensureErr != nil {
+				return ensureErr
+			}
+			plugin, err = c.getKeyAuthPlugin(ctx)
+		}
 		if err != nil {
 			return err
 		}
@@ -116,13 +129,20 @@ func (c *Client) UpdateKeyAuthConsumers(ctx context.Context, consumers []KeyAuth
 			}
 			payload = append(payload, consumer)
 		}
+		if len(payload) == 0 {
+			payload = append(payload, map[string]any{
+				"name":       "__aigateway_disabled__",
+				"credential": "revoked-disabled-key-auth-bootstrap",
+			})
+		}
 		defaultConfig["keys"] = []any{"Authorization", "x-api-key", "x-goog-api-key", "key"}
 		defaultConfig["in_header"] = true
 		defaultConfig["in_query"] = true
+		defaultConfig["global_auth"] = false
 		defaultConfig["consumers"] = payload
 		spec["defaultConfig"] = defaultConfig
-		// Keep instance-level auth config enabled so route-level allow rules can
-		// reuse the projected consumers and key extraction settings.
+		// Keep the instance config available for route-level allow rules without
+		// authenticating unrelated Console/Portal ingress traffic globally.
 		spec["defaultConfigDisable"] = false
 		plugin.Object["spec"] = spec
 		if _, err = c.dynamicClient.Resource(wasmPluginGVR).Namespace(c.namespace).Update(
@@ -208,7 +228,7 @@ func (c *Client) getKeyAuthPlugin(ctx context.Context) (*unstructured.Unstructur
 		items = append(items, list.Items...)
 	}
 	if len(items) == 0 {
-		candidates := []string{"key-auth", "wasm-keyauth"}
+		candidates := []string{keyAuthInternalName, "key-auth", "wasm-keyauth"}
 		for _, name := range candidates {
 			item, getErr := c.dynamicClient.Resource(wasmPluginGVR).Namespace(c.namespace).Get(
 				ctx, name, metav1.GetOptions{},
@@ -220,7 +240,7 @@ func (c *Client) getKeyAuthPlugin(ctx context.Context) (*unstructured.Unstructur
 		}
 	}
 	if len(items) == 0 {
-		return nil, gerror.New("key-auth wasmplugin not found")
+		return nil, errKeyAuthPluginNotFound
 	}
 
 	sort.Slice(items, func(i, j int) bool {
@@ -228,6 +248,50 @@ func (c *Client) getKeyAuthPlugin(ctx context.Context) (*unstructured.Unstructur
 	})
 	chosen := items[0].DeepCopy()
 	return chosen, nil
+}
+
+func (c *Client) ensureKeyAuthPlugin(ctx context.Context) error {
+	manifest := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "extensions.higress.io/v1alpha1",
+		"kind":       "WasmPlugin",
+		"metadata": map[string]any{
+			"name":      keyAuthInternalName,
+			"namespace": c.namespace,
+			"labels": map[string]any{
+				"higress.io/wasm-plugin-name":    keyAuthPluginName,
+				"higress.io/resource-definer":    "higress",
+				"higress.io/internal":            "true",
+				"higress.io/wasm-plugin-version": keyAuthPluginVersion,
+			},
+		},
+		"spec": map[string]any{
+			"phase":    "AUTHN",
+			"priority": 310,
+			"url": fmt.Sprintf(
+				"http://aigateway-plugin-server.%s.svc.cluster.local/plugins/%s/%s/plugin.wasm",
+				c.namespace,
+				keyAuthPluginName,
+				keyAuthPluginVersion,
+			),
+			"defaultConfig": map[string]any{
+				"global_auth": false,
+				"keys":        []any{"Authorization", "x-api-key", "x-goog-api-key", "key"},
+				"in_header":   true,
+				"in_query":    true,
+				"consumers": []any{map[string]any{
+					"name":       "__aigateway_disabled__",
+					"credential": "revoked-disabled-key-auth-bootstrap",
+				}},
+			},
+			"defaultConfigDisable": false,
+			"matchRules":           []any{},
+		},
+	}}
+	_, err := c.dynamicClient.Resource(wasmPluginGVR).Namespace(c.namespace).Create(ctx, manifest, metav1.CreateOptions{})
+	if apierrors.IsAlreadyExists(err) {
+		return nil
+	}
+	return err
 }
 
 func keyAuthPluginRank(name string) string {
