@@ -55,9 +55,6 @@ func (r *gatewayAddressResolver) resolveTarget(endpoint string, fallbackPath str
 	hostHeader := ""
 	if internal {
 		baseURL = r.resolveInternalBaseURL()
-		if route, ok := r.findBestRoute(normalizedPath); ok {
-			hostHeader = strings.TrimSpace(route.Host)
-		}
 	} else {
 		baseURL = r.resolvePublicBaseURL(normalizedPath)
 	}

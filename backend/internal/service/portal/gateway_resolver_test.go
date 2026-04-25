@@ -48,3 +48,25 @@ func TestNormalizePublicBaseFallback(t *testing.T) {
 		t.Fatalf("unexpected fallback base normalization: %s", got)
 	}
 }
+
+func TestResolveTargetInternalDoesNotReusePublicHostHeader(t *testing.T) {
+	resolver := &gatewayAddressResolver{
+		service: &Service{},
+		routes: []clientK8s.GatewayIngressRoute{
+			{Host: "console.aigateway.io", Path: "/"},
+			{Host: "api.aigateway.io", Path: "/qwen"},
+			{Host: "", Path: "/internal/ai-routes/qwen"},
+		},
+		routeLoaded: true,
+	}
+	resolver.service.cfg.K8sNamespace = "aigateway-system"
+	resolver.service.cfg.GatewayServiceName = "aigateway-gateway"
+
+	target := resolver.resolveTarget("/internal/ai-routes/qwen", "/v1/chat/completions", true)
+	if got := target.URL; got != "http://aigateway-gateway.aigateway-system.svc.cluster.local/internal/ai-routes/qwen" {
+		t.Fatalf("unexpected internal target url: %s", got)
+	}
+	if target.HostHeader != "" {
+		t.Fatalf("expected empty internal host header, got %q", target.HostHeader)
+	}
+}

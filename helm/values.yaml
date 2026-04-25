@@ -6,7 +6,7 @@ imagePullSecrets: []
 
 image:
   repository: aigateway/portal
-  tag: "1.1.0"
+  tag: "1.1.0-dev-20260425100829"
   pullPolicy: IfNotPresent
 
 service:
@@ -57,7 +57,7 @@ backend:
   # Deprecated: use top-level image instead.
   image:
     repository: aigateway/portal
-    tag: "1.1.0"
+    tag: "1.1.0-dev-20260425100829"
     pullPolicy: IfNotPresent
   # Deprecated: use top-level service.port instead.
   service:
