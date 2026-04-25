@@ -4,6 +4,7 @@ import (
 	"context"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
@@ -15,6 +16,8 @@ import (
 	servicePortal "higress-portal-backend/internal/service/portal"
 )
 
+const startupRetryInterval = 3 * time.Second
+
 var Main = gcmd.Command{
 	Name:  "main",
 	Usage: "main",
@@ -22,16 +25,32 @@ var Main = gcmd.Command{
 	Func:  mainFunc,
 }
 
+var DBInit = &gcmd.Command{
+	Name:  "db-init",
+	Usage: "db-init",
+	Brief: "initialize portal shared schema, portal-owned schema, and bootstrap data",
+	Func: func(ctx context.Context, parser *gcmd.Parser) error {
+		cfg := config.Load()
+		svc, err := servicePortal.New(cfg)
+		if err != nil {
+			return err
+		}
+		defer svc.Close(ctx)
+		return nil
+	},
+}
+
 func mainFunc(ctx context.Context, parser *gcmd.Parser) (err error) {
+	rootCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	cfg := config.Load()
-	svc, err := servicePortal.New(cfg)
+	svc, err := waitForService(rootCtx, cfg)
 	if err != nil {
 		return err
 	}
-	defer svc.Close(ctx)
+	defer svc.Close(context.Background())
 
-	rootCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	svc.StartUsageSync(rootCtx)
 	svc.StartKeyAuthSync(rootCtx)
 	svc.StartBillingSync(rootCtx)
@@ -109,4 +128,31 @@ func mainFunc(ctx context.Context, parser *gcmd.Parser) (err error) {
 
 	s.Run()
 	return nil
+}
+
+func waitForService(ctx context.Context, cfg config.Config) (*servicePortal.Service, error) {
+	for {
+		svc, err := servicePortal.New(cfg)
+		if err == nil {
+			return svc, nil
+		}
+
+		g.Log().Warningf(ctx,
+			"portal backend startup is waiting for database and bootstrap readiness, retrying in %s: %v",
+			startupRetryInterval,
+			err,
+		)
+
+		timer := time.NewTimer(startupRetryInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func init() {
+	_ = Main.AddCommand(DBInit)
 }

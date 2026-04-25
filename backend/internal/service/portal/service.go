@@ -31,6 +31,8 @@ type Service struct {
 	streamClient    *http.Client
 	modelK8s        *clientK8s.Client
 	billingNodeName string
+	billingMu       sync.Mutex
+	billingLoops    map[string]struct{}
 	usageReadSyncMu sync.Mutex
 	usageReadSyncAt time.Time
 }
@@ -60,6 +62,7 @@ func New(cfg config.Config) (*Service, error) {
 		streamClient:    &http.Client{},
 		modelK8s:        clientK8s.New(cfg),
 		billingNodeName: "portal-" + randomString(8),
+		billingLoops:    map[string]struct{}{},
 	}
 	if initErr := s.modelK8s.InitError(); initErr != nil {
 		g.Log().Warningf(context.Background(), "portal k8s model catalog init failed: %v", initErr)

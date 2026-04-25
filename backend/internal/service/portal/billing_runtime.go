@@ -29,6 +29,7 @@ const (
 	billingConsumerGroup              = "portal-billing"
 	builtinAdministratorUser          = "administrator"
 	microYuanPerRMB             int64 = 1_000_000
+	billingRedisRetryInterval         = 3 * time.Second
 )
 
 const billingUsageEventInsertSQL = `
@@ -302,13 +303,8 @@ func (s *Service) StartBillingSync(ctx context.Context) {
 		s.logf(ctx, "initial billing sync failed: %v", err)
 	}
 
-	bindings, err := s.listAmountQuotaBindings(ctx)
-	if err != nil {
+	if err := s.ensureBillingUsageConsumers(ctx); err != nil {
 		s.logf(ctx, "discover amount ai-quota bindings failed: %v", err)
-	} else {
-		for _, binding := range bindings {
-			go s.consumeBillingUsageEventsLoop(ctx, binding)
-		}
 	}
 
 	interval := s.cfg.BillingSyncInterval
@@ -326,9 +322,51 @@ func (s *Service) StartBillingSync(ctx context.Context) {
 				if err := s.syncBillingStateOnce(ctx); err != nil {
 					s.logf(ctx, "billing sync failed: %v", err)
 				}
+				if err := s.ensureBillingUsageConsumers(ctx); err != nil {
+					s.logf(ctx, "refresh amount ai-quota billing consumers failed: %v", err)
+				}
 			}
 		}
 	}()
+}
+
+func (s *Service) ensureBillingUsageConsumers(ctx context.Context) error {
+	bindings, err := s.listAmountQuotaBindings(ctx)
+	if err != nil {
+		return err
+	}
+	for _, binding := range bindings {
+		s.startBillingUsageConsumerLoop(ctx, binding)
+	}
+	return nil
+}
+
+func (s *Service) startBillingUsageConsumerLoop(ctx context.Context, binding clientK8s.AIQuotaBinding) {
+	signature := billingUsageConsumerSignature(binding)
+
+	s.billingMu.Lock()
+	if _, ok := s.billingLoops[signature]; ok {
+		s.billingMu.Unlock()
+		return
+	}
+	s.billingLoops[signature] = struct{}{}
+	s.billingMu.Unlock()
+
+	go s.consumeBillingUsageEventsLoop(ctx, binding)
+}
+
+func billingUsageConsumerSignature(binding clientK8s.AIQuotaBinding) string {
+	stream := strings.TrimSpace(binding.UsageEventStream)
+	if stream == "" {
+		stream = billingDefaultUsageStream
+	}
+	return fmt.Sprintf("%s|%d|%s|%d|%s",
+		strings.TrimSpace(binding.Redis.ServiceName),
+		binding.Redis.ServicePort,
+		strings.TrimSpace(binding.Redis.Username),
+		binding.Redis.Database,
+		stream,
+	)
 }
 
 func (s *Service) syncBillingStateOnce(ctx context.Context) error {
@@ -692,16 +730,41 @@ func isRedisNoGroupError(err error) bool {
 }
 
 func (s *Service) consumeBillingUsageEventsLoop(ctx context.Context, binding clientK8s.AIQuotaBinding) {
-	client := newRedisClient(binding.Redis)
-	defer client.Close()
-
 	stream := binding.UsageEventStream
 	if stream == "" {
 		stream = billingDefaultUsageStream
 	}
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		client := newRedisClient(binding.Redis)
+		err := s.consumeBillingUsageEventsWithClient(ctx, client, stream)
+		_ = client.Close()
+
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			s.logf(ctx, "billing usage event consumer disconnected, retrying in %s: stream=%s err=%v",
+				billingRedisRetryInterval, stream, err)
+		}
+
+		timer := time.NewTimer(billingRedisRetryInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func (s *Service) consumeBillingUsageEventsWithClient(ctx context.Context, client *redis.Client, stream string) error {
 	if err := ensureBillingUsageConsumerGroup(ctx, client, stream); err != nil {
-		s.logf(ctx, "create billing redis consumer group failed: %v", err)
-		return
+		return gerror.Wrap(err, "create billing redis consumer group failed")
 	}
 
 	block := s.cfg.BillingConsumerBlock
@@ -715,7 +778,7 @@ func (s *Service) consumeBillingUsageEventsLoop(ctx context.Context, binding cli
 
 	for {
 		if ctx.Err() != nil {
-			return
+			return ctx.Err()
 		}
 		streams, err := client.XReadGroup(ctx, &redis.XReadGroupArgs{
 			Group:    billingConsumerGroup,
@@ -728,21 +791,14 @@ func (s *Service) consumeBillingUsageEventsLoop(ctx context.Context, binding cli
 			continue
 		}
 		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
 			if isRedisNoGroupError(err) {
 				if groupErr := ensureBillingUsageConsumerGroup(ctx, client, stream); groupErr != nil {
-					s.logf(ctx, "recreate billing redis consumer group failed: %v", groupErr)
-				} else {
-					s.logf(ctx, "recreated billing redis consumer group: stream=%s group=%s", stream, billingConsumerGroup)
+					return gerror.Wrap(groupErr, "recreate billing redis consumer group failed")
 				}
-				time.Sleep(time.Second)
+				s.logf(ctx, "recreated billing redis consumer group: stream=%s group=%s", stream, billingConsumerGroup)
 				continue
 			}
-			s.logf(ctx, "billing usage event consume failed: %v", err)
-			time.Sleep(time.Second)
-			continue
+			return err
 		}
 		for _, streamResult := range streams {
 			for _, msg := range streamResult.Messages {
