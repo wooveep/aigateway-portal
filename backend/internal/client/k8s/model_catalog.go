@@ -386,11 +386,9 @@ func (c *Client) listProviderRouteBindings(ctx context.Context) (map[string][]pr
 		}
 		ingressName, _, _ := unstructured.NestedString(item.Object, "metadata", "name")
 		routePath := firstIngressPath(item.Object)
-		exactModel := extractExactModelHeader(item.Object)
-		if exactModel == "" {
-			exactModel = strings.TrimSpace(modelsByIngress[strings.TrimSpace(ingressName)])
-		}
-		if routePath == "" && exactModel == "" {
+		headerModel := extractRouteModelHeader(item.Object)
+		mappedModel := strings.TrimSpace(modelsByIngress[strings.TrimSpace(ingressName)])
+		if routePath == "" && headerModel == "" && mappedModel == "" {
 			continue
 		}
 		routeName := routeBindingName(ingressName)
@@ -407,8 +405,10 @@ func (c *Client) listProviderRouteBindings(ctx context.Context) (map[string][]pr
 		} else if routePath != "" {
 			binding.Path = routePath
 		}
-		if exactModel != "" {
-			binding.ExactModel = exactModel
+		if headerModel != "" {
+			binding.ExactModel = headerModel
+		} else if binding.ExactModel == "" && mappedModel != "" {
+			binding.ExactModel = mappedModel
 		}
 		registryBindings[routeName] = binding
 		grouped[registryName] = registryBindings
@@ -600,9 +600,13 @@ func firstIngressPath(object map[string]any) string {
 	return ""
 }
 
-func extractExactModelHeader(object map[string]any) string {
+func extractRouteModelHeader(object map[string]any) string {
 	exactModel, _, _ := unstructured.NestedString(object, "metadata", "annotations", "higress.io/exact-match-header-x-higress-llm-model")
-	return strings.TrimSpace(exactModel)
+	if model := strings.TrimSpace(exactModel); model != "" {
+		return model
+	}
+	prefixModel, _, _ := unstructured.NestedString(object, "metadata", "annotations", "higress.io/prefix-match-header-x-higress-llm-model")
+	return strings.TrimSpace(prefixModel)
 }
 
 func inferMappedModel(modelMapping map[string]any) string {
