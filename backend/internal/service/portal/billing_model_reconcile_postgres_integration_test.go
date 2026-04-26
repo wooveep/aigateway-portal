@@ -30,20 +30,6 @@ func TestSyncBillingModelCatalogCanonicalizesPublishedBindingLegacyPricingOnPost
 		return rawDB.PingContext(ctx) == nil
 	}, 60*time.Second, 500*time.Millisecond)
 	require.NoError(t, shared.ApplyToSQLWithDriver(ctx, rawDB, "postgres"))
-	_, err = rawDB.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS portal_model_binding_price_version (
-			version_id BIGSERIAL PRIMARY KEY,
-			asset_id VARCHAR(255) NOT NULL,
-			binding_id VARCHAR(255) NOT NULL,
-			status VARCHAR(32) NOT NULL DEFAULT 'active',
-			active BOOLEAN NOT NULL DEFAULT FALSE,
-			effective_from TIMESTAMP NULL,
-			effective_to TIMESTAMP NULL,
-			pricing_json TEXT NULL,
-			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-		)`)
-	require.NoError(t, err)
 
 	db, err := gdb.New(gdb.ConfigNode{Type: "pgsql", Link: gfPostgresLink(dsn)})
 	require.NoError(t, err)
@@ -57,6 +43,15 @@ func TestSyncBillingModelCatalogCanonicalizesPublishedBindingLegacyPricingOnPost
 		modelK8s: clientK8s.New(config.Config{}),
 	}
 	require.NoError(t, svc.runMigrations(ctx))
+
+	var priceVersionTableCount int
+	require.NoError(t, rawDB.QueryRowContext(ctx, `
+		SELECT COUNT(1)
+		FROM information_schema.tables
+		WHERE table_schema = current_schema()
+		  AND table_name = 'portal_model_binding_price_version'`,
+	).Scan(&priceVersionTableCount))
+	require.Equal(t, 1, priceVersionTableCount)
 
 	_, err = rawDB.ExecContext(ctx, `
 		INSERT INTO portal_model_asset (

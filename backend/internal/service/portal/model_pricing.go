@@ -100,6 +100,11 @@ func (s *Service) loadBillingCatalogSeedEntries(ctx context.Context) ([]activeMo
 		if err != nil {
 			return nil, gerror.Wrap(err, "load portal model catalog failed")
 		}
+	} else if len(baseEntries) == 0 {
+		baseEntries, err = s.loadBootstrapModelPricesFromCatalog(ctx)
+		if err != nil {
+			return nil, gerror.Wrap(err, "load portal model catalog failed")
+		}
 	}
 
 	publishedEntries, err := s.loadPublishedBindingModelPrices(ctx)

@@ -96,19 +96,29 @@ func TestNormalizeDestinationRegistryName(t *testing.T) {
 	}
 }
 
-func TestExtractExactModelHeader(t *testing.T) {
+func TestExtractRouteModelHeader(t *testing.T) {
 	t.Parallel()
 
-	object := map[string]any{
+	exactObject := map[string]any{
 		"metadata": map[string]any{
 			"annotations": map[string]any{
 				"higress.io/exact-match-header-x-higress-llm-model": "doubao-seed-2-0-pro-260215",
 			},
 		},
 	}
-	got := extractExactModelHeader(object)
-	if got != "doubao-seed-2-0-pro-260215" {
-		t.Fatalf("extractExactModelHeader() = %q, want %q", got, "doubao-seed-2-0-pro-260215")
+	if got := extractRouteModelHeader(exactObject); got != "doubao-seed-2-0-pro-260215" {
+		t.Fatalf("extractRouteModelHeader() exact = %q, want %q", got, "doubao-seed-2-0-pro-260215")
+	}
+
+	prefixObject := map[string]any{
+		"metadata": map[string]any{
+			"annotations": map[string]any{
+				"higress.io/prefix-match-header-x-higress-llm-model": "doubao-seed-2-0-pro",
+			},
+		},
+	}
+	if got := extractRouteModelHeader(prefixObject); got != "doubao-seed-2-0-pro" {
+		t.Fatalf("extractRouteModelHeader() prefix = %q, want %q", got, "doubao-seed-2-0-pro")
 	}
 }
 

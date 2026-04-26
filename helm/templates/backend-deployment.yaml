@@ -3,6 +3,7 @@
 {{- $dbPasswordKey := .Values.database.passwordKey -}}
 {{- $dbNameKey := .Values.database.databaseKey -}}
 {{- $dbDriver := include "aigateway-portal.db.driver" . -}}
+{{- $dbWait := .Values.database.waitFor | default (dict) -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -34,6 +35,41 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.backend.podSecurityContext | nindent 8 }}
+      {{- if ($dbWait.enabled | default true) }}
+      initContainers:
+        - name: wait-for-portal-db
+          image: "{{ $dbWait.image.repository | default "bitnamilegacy/postgresql-repmgr" }}:{{ $dbWait.image.tag | default "17.6.0-debian-12-r2" }}"
+          imagePullPolicy: {{ $dbWait.image.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - |
+              until pg_isready -h "${PORTAL_DB_HOST}" -p "${PORTAL_DB_PORT}" -U "${PORTAL_DB_USER}" -d "${PORTAL_DB_NAME}"; do
+                echo "waiting for portal database at ${PORTAL_DB_HOST}:${PORTAL_DB_PORT}"
+                sleep {{ $dbWait.periodSeconds | default 2 }}
+              done
+          env:
+            - name: PORTAL_DB_HOST
+              value: {{ include "aigateway-portal.db.host" . | quote }}
+            - name: PORTAL_DB_PORT
+              value: {{ $dbPort | quote }}
+            - name: PORTAL_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "aigateway-portal.dbSecretName" . }}
+                  key: {{ $dbNameKey }}
+            - name: PORTAL_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "aigateway-portal.dbSecretName" . }}
+                  key: {{ $dbUserKey }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "aigateway-portal.dbSecretName" . }}
+                  key: {{ $dbPasswordKey }}
+      {{- end }}
       containers:
         - name: portal
           securityContext:

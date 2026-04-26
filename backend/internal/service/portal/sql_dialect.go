@@ -277,6 +277,18 @@ func (s *Service) portalMigrationDDLs() []string {
 			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_billing_model_status ON billing_model_catalog (status)`,
+		`CREATE TABLE IF NOT EXISTS portal_model_binding_price_version (
+			version_id BIGSERIAL PRIMARY KEY,
+			asset_id VARCHAR(255) NOT NULL,
+			binding_id VARCHAR(255) NOT NULL,
+			status VARCHAR(32) NOT NULL DEFAULT 'active',
+			active BOOLEAN NOT NULL DEFAULT FALSE,
+			effective_from TIMESTAMP NULL,
+			effective_to TIMESTAMP NULL,
+			pricing_json TEXT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`CREATE TABLE IF NOT EXISTS portal_ai_chat_session (
 			id BIGSERIAL PRIMARY KEY,
 			session_id VARCHAR(128) NOT NULL UNIQUE,
